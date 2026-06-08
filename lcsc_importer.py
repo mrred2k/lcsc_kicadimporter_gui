@@ -93,6 +93,49 @@ def _fetch_mpn(lcsc_id: str):
     return None
 
 
+# ── Description fetch & inject ──────────────────────────────────────────────
+def _fetch_description(lcsc_id: str) -> str:
+    """Fetch product description from JLCPCB parts API by LCSC ID."""
+    try:
+        from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
+        results = EasyedaApi().search_jlcpcb_components(keyword=lcsc_id, page_size=5)
+        for r in results.get("results", []):
+            if r.get("lcsc", "").upper() == lcsc_id.upper():
+                return r.get("description", "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+def _kicad_escape(s: str) -> str:
+    """Escape a string for embedding in a KiCad S-expression."""
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _patch_description(output_base: str, description: str) -> None:
+    """Inject description into generated .kicad_sym and .kicad_mod files if empty."""
+    escaped = _kicad_escape(description)
+
+    sym_file = Path(output_base + ".kicad_sym")
+    if sym_file.exists():
+        content = sym_file.read_text(encoding="utf-8")
+        new_content = re.sub(
+            r'\(property "(Description|ki_description)" ""',
+            f'(property "\\1" "{escaped}"',
+            content,
+        )
+        if new_content != content:
+            sym_file.write_text(new_content, encoding="utf-8")
+
+    pretty_dir = Path(output_base + ".pretty")
+    if pretty_dir.exists():
+        for kmod in pretty_dir.glob("*.kicad_mod"):
+            content = kmod.read_text(encoding="utf-8")
+            new_content = content.replace('(descr "")', f'(descr "{escaped}")', 1)
+            if new_content != content:
+                kmod.write_text(new_content, encoding="utf-8")
+
+
 # ── 3D path post-processing ───────────────────────────────────────────────────
 def fix_3d_paths(output_base: str, var_3d: str) -> list:
     """Replace absolute 3D model paths in .kicad_mod files with a KiCad variable.
@@ -560,6 +603,10 @@ def _run_one(lcsc_id: str, name: str):
 
         mode = var_mode.get()
         if result.returncode == 0:
+            desc = _fetch_description(lcsc_id)
+            if desc:
+                _patch_description(output_base, desc)
+                root.after(0, lambda d=desc: log(f"  Beschreibung: {d[:80]}\n", "info"))
             post_msgs = (merge_into_libs if var_merge_mode.get() else distribute_new_lib)(
                 output_base, mode)
             for msg, t in post_msgs:
