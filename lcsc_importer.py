@@ -588,7 +588,12 @@ def _run_one(lcsc_id: str, name: str):
     """Run import for a single ID and post-process. Called from worker thread."""
     tmpdir = tempfile.mkdtemp(prefix="lcsc_import_")
     output_base = str(Path(tmpdir) / name)
-    root.after(0, lambda: log(f"► {lcsc_id}  →  {name}\n", "info"))
+
+    # Fetch description upfront so it appears in the header log line
+    desc = _fetch_description(lcsc_id)
+    desc_str = f"  –  {desc}" if desc else ""
+    root.after(0, lambda: log(f"► {lcsc_id}  →  {name}{desc_str}\n", "info"))
+
     cmd = _build_cmd(lcsc_id, output_base)
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
@@ -603,10 +608,8 @@ def _run_one(lcsc_id: str, name: str):
 
         mode = var_mode.get()
         if result.returncode == 0:
-            desc = _fetch_description(lcsc_id)
             if desc:
                 _patch_description(output_base, desc)
-                root.after(0, lambda d=desc: log(f"  Beschreibung: {d[:80]}\n", "info"))
             post_msgs = (merge_into_libs if var_merge_mode.get() else distribute_new_lib)(
                 output_base, mode)
             for msg, t in post_msgs:
