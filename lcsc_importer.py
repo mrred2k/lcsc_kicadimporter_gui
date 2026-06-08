@@ -535,6 +535,7 @@ def _on_lcsc_keyrelease(*_):
     else:
         # Multiple IDs – name field not applicable
         entry_name.config(state=tk.DISABLED)
+        _var_desc.set("")
 
 
 def _trigger_mpn_fetch(lcsc_id: str):
@@ -544,26 +545,31 @@ def _trigger_mpn_fetch(lcsc_id: str):
     entry_name.config(state=tk.NORMAL)
     entry_name.delete(0, tk.END)
     entry_name.insert(0, "…")
+    _var_desc.set("…")
 
     def worker():
         mpn = _fetch_mpn(lcsc_id)
-        result = mpn if mpn else lcsc_id
-        root.after(0, lambda: _apply_mpn(lcsc_id, result))
+        name_result = mpn if mpn else lcsc_id
+        desc = _fetch_description(lcsc_id)
+        root.after(0, lambda: _apply_mpn(lcsc_id, name_result, desc))
 
     threading.Thread(target=worker, daemon=True).start()
 
 
-def _apply_mpn(lcsc_id: str, name: str):
+def _apply_mpn(lcsc_id: str, name: str, desc: str = ""):
     global _last_fetched_id
     _last_fetched_id = lcsc_id
     if not _name_edited.get():
         entry_name.config(state=tk.NORMAL)
         entry_name.delete(0, tk.END)
         entry_name.insert(0, name)
+        short = (desc[:67] + "…") if len(desc) > 70 else desc
+        _var_desc.set(short)
 
 
 def _on_name_keypress(*_):
     _name_edited.set(True)
+    _var_desc.set("")
 
 
 def _build_cmd(lcsc_id: str, output_base: str) -> list:
@@ -758,6 +764,7 @@ root.resizable(False, False)
 _name_edited   = tk.BooleanVar(value=False)
 var_tooltips   = tk.BooleanVar(value=True)
 var_merge_mode = tk.BooleanVar(value=False)
+_var_desc      = tk.StringVar(value="")
 ToolTip.enabled = var_tooltips
 pad = {"padx": 8, "pady": 3}
 
@@ -793,10 +800,15 @@ ToolTip(entry_name,
         "Kann manuell überschrieben werden.\n"
         "Bei mehreren IDs: pro Komponente eigener MPN-Name.")
 
-# ── Row 2: Ausgabe-Modus toggle ───────────────────────────────────────────────
-ttk.Label(frame_top, text="Ausgabe:").grid(row=2, column=0, sticky="w", **pad)
+# ── Row 2: Description hint ──────────────────────────────────────────────────
+lbl_desc = ttk.Label(frame_top, textvariable=_var_desc, foreground="gray",
+                     font=("TkDefaultFont", 8))
+lbl_desc.grid(row=2, column=1, columnspan=2, sticky="w", padx=(8, 8), pady=(0, 3))
+
+# ── Row 3: Ausgabe-Modus toggle ───────────────────────────────────────────────
+ttk.Label(frame_top, text="Ausgabe:").grid(row=3, column=0, sticky="w", **pad)
 frame_mode_toggle = ttk.Frame(frame_top)
-frame_mode_toggle.grid(row=2, column=1, columnspan=2, sticky="w", **pad)
+frame_mode_toggle.grid(row=3, column=1, columnspan=2, sticky="w", **pad)
 ttk.Radiobutton(frame_mode_toggle, text="Neue Library",
                 variable=var_merge_mode, value=False,
                 command=_on_merge_mode_change).pack(side=tk.LEFT, padx=(0, 12))
@@ -804,9 +816,9 @@ ttk.Radiobutton(frame_mode_toggle, text="In bestehende Library mergen",
                 variable=var_merge_mode, value=True,
                 command=_on_merge_mode_change).pack(side=tk.LEFT)
 
-# ── Row 3: Output section (switchable) ───────────────────────────────────────
+# ── Row 4: Output section (switchable) ───────────────────────────────────────
 frame_output_section = ttk.Frame(frame_top)
-frame_output_section.grid(row=3, column=0, columnspan=3, sticky="ew")
+frame_output_section.grid(row=4, column=0, columnspan=3, sticky="ew")
 frame_output_section.columnconfigure(0, weight=1)
 
 # Sub-frame A: New Library (3 separate target dirs)
@@ -886,10 +898,10 @@ entry_merge_3d.bind("<FocusOut>", lambda _: _save_config())
 # Initially show new-library frame; load config and apply
 frame_newlib.pack(fill=tk.X)
 
-# ── Row 4: Import mode ───────────────────────────────────────────────────────
-ttk.Label(frame_top, text="Import:").grid(row=4, column=0, sticky="w", **pad)
+# ── Row 5: Import mode ───────────────────────────────────────────────────────
+ttk.Label(frame_top, text="Import:").grid(row=5, column=0, sticky="w", **pad)
 frame_mode = ttk.Frame(frame_top)
-frame_mode.grid(row=4, column=1, columnspan=2, sticky="w", **pad)
+frame_mode.grid(row=5, column=1, columnspan=2, sticky="w", **pad)
 var_mode = tk.StringVar(value="full")
 for val, lbl, tip in [
     ("full",       "Alles",      "Symbol + Footprint + 3D-Modell importieren (--full)"),
@@ -901,9 +913,9 @@ for val, lbl, tip in [
     rb.pack(side=tk.LEFT, padx=4)
     ToolTip(rb, tip)
 
-# ── Row 5: Checkboxes ────────────────────────────────────────────────────────
+# ── Row 6: Checkboxes ────────────────────────────────────────────────────────
 frame_opts = ttk.Frame(frame_top)
-frame_opts.grid(row=5, column=0, columnspan=3, sticky="w", padx=8, pady=(2, 0))
+frame_opts.grid(row=6, column=0, columnspan=3, sticky="w", padx=8, pady=(2, 0))
 var_overwrite = tk.BooleanVar()
 var_cache     = tk.BooleanVar()
 var_projrel   = tk.BooleanVar()
@@ -939,10 +951,10 @@ ToolTip(cb_v,
 ttk.Separator(frame_opts, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
 ttk.Checkbutton(frame_opts, text="Tooltips", variable=var_tooltips).pack(side=tk.LEFT, padx=4)
 
-# ── Row 6: 3D variable ───────────────────────────────────────────────────────
-ttk.Label(frame_top, text="3D-Variable:").grid(row=6, column=0, sticky="w", **pad)
+# ── Row 7: 3D variable ───────────────────────────────────────────────────────
+ttk.Label(frame_top, text="3D-Variable:").grid(row=7, column=0, sticky="w", **pad)
 entry_3dvar = ttk.Entry(frame_top, width=36)
-entry_3dvar.grid(row=6, column=1, sticky="w", **pad)
+entry_3dvar.grid(row=7, column=1, sticky="w", **pad)
 entry_3dvar.insert(0, DEFAULT_3D_VAR)
 ToolTip(entry_3dvar,
         "KiCad-Pfadvariable für 3D-Modelle.\n\n"
@@ -954,20 +966,20 @@ ToolTip(entry_3dvar,
         "Beispiel: ${KICAD_USER_3DMODEL_DIR}\n"
         "→ In KiCad unter Preferences → Configure Paths setzen.")
 
-# ── Row 7: Custom fields ─────────────────────────────────────────────────────
-ttk.Label(frame_top, text="Custom Fields:").grid(row=7, column=0, sticky="w", **pad)
+# ── Row 8: Custom fields ─────────────────────────────────────────────────────
+ttk.Label(frame_top, text="Custom Fields:").grid(row=8, column=0, sticky="w", **pad)
 entry_custom = ttk.Entry(frame_top, width=44)
-entry_custom.grid(row=7, column=1, columnspan=2, sticky="ew", **pad)
+entry_custom.grid(row=8, column=1, columnspan=2, sticky="ew", **pad)
 ToolTip(entry_custom,
         "Eigene Symbol-Properties hinzufügen (--custom-field).\n"
         "Leerzeichen-getrennte KEY:VALUE Paare.\n"
         "Beispiel: Mfr:TI Package:QFN-36 Datasheet:https://ti.com/lit/ds/...")
 ttk.Label(frame_top, text="z.B.  Mfr:TI  Package:QFN-36", foreground="gray").grid(
-    row=8, column=1, columnspan=2, sticky="w", padx=8)
+    row=9, column=1, columnspan=2, sticky="w", padx=8)
 
-# ── Row 9: Buttons ───────────────────────────────────────────────────────────
+# ── Row 10: Buttons ──────────────────────────────────────────────────────────
 frame_btn = ttk.Frame(frame_top)
-frame_btn.grid(row=9, column=0, columnspan=3, pady=(8, 0))
+frame_btn.grid(row=10, column=0, columnspan=3, pady=(8, 0))
 btn_run = ttk.Button(frame_btn, text="Import starten", command=run_import)
 btn_run.pack(side=tk.LEFT, padx=4)
 ttk.Button(frame_btn, text="Log leeren", command=clear_log).pack(side=tk.LEFT, padx=4)
