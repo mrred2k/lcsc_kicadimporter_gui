@@ -95,13 +95,16 @@ def _fetch_mpn(lcsc_id: str):
 
 # ── Description fetch & inject ──────────────────────────────────────────────
 def _fetch_description(lcsc_id: str) -> str:
-    """Fetch product description from JLCPCB parts API by LCSC ID."""
+    """Get description from EasyEDA API (same call as MPN fetch, no extra request).
+    Falls back to component tags if the description field is empty."""
     try:
         from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
-        results = EasyedaApi().search_jlcpcb_components(keyword=lcsc_id, page_size=5)
-        for r in results.get("results", []):
-            if r.get("lcsc", "").upper() == lcsc_id.upper():
-                return r.get("description", "").strip()
+        result = EasyedaApi().get_info_from_easyeda_api(lcsc_id).get("result", {})
+        desc = result.get("description", "").strip()
+        if not desc:
+            tags = result.get("tags", [])
+            desc = ", ".join(tags) if tags else ""
+        return desc
     except Exception:
         pass
     return ""
