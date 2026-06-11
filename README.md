@@ -2,6 +2,8 @@
 
 A small Python/tkinter GUI wrapper around [easyeda2kicad](https://github.com/uPesy/easyeda2kicad.py) that imports LCSC components into KiCad libraries.
 
+![GUI Screenshot](Gui_german.png)
+
 ## Requirements
 
 - Python 3.9+

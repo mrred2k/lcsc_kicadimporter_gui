@@ -66,6 +66,372 @@ class ToolTip:
             self._tip = None
 
 
+# ── Language / i18n ──────────────────────────────────────────────────────────
+_LANG = "de"
+_lang_widgets: list = []   # (widget, config_key, string_key)
+_lang_tips:    list = []   # (ToolTip instance, string_key)
+
+_STRINGS: dict = {
+    "de": {
+        "window_title":   "LCSC → KiCad Importer",
+        "lbl_lcsc":       "LCSC-ID(s):",
+        "lbl_name":       "Name (MPN):",
+        "lbl_from_api":   "← aus API",
+        "lbl_output":     "Ausgabe:",
+        "rb_newlib":      "Neue Library",
+        "rb_merge":       "In bestehende Library mergen",
+        "lbl_import":     "Import:",
+        "rb_full":        "Alles",
+        "rb_symbol":      "Symbol",
+        "rb_footprint":   "Footprint",
+        "rb_3d":          "3D-Modell",
+        "cb_overwrite":   "Überschreiben",
+        "cb_cache":       "Cache",
+        "cb_projrel":     "Proj-relativ",
+        "cb_debug":       "Debug",
+        "cb_verbose":     "Verbose Log",
+        "cb_tooltips":    "Tooltips",
+        "lbl_3dvar":      "3D-Variable:",
+        "lbl_custom":     "Custom Fields:",
+        "lbl_custom_hint":"z.B.  Mfr:TI  Package:QFN-36",
+        "btn_run":        "Import starten",
+        "btn_clear":      "Log leeren",
+        "frm_log":        "Ausgabe",
+        "lbl_newlib_sym": "Symbols-Ordner:",
+        "lbl_newlib_fp":  "Footprints-Ordner:",
+        "lbl_newlib_3d":  "3D-Ordner:",
+        "lbl_merge_sym":  "Symbol-Lib:",
+        "lbl_merge_fp":   "Footprint-Lib:",
+        "lbl_merge_3d":   "3D-Ordner:",
+        # browse dialog titles
+        "browse_newlib_sym": "Symbols-Ordner auswählen (MPN.kicad_sym wird hier abgelegt)",
+        "browse_newlib_fp":  "Footprints-Ordner auswählen (MPN.pretty/ wird hier erstellt)",
+        "browse_newlib_3d":  "3D-Basisordner auswählen (MPN.3dshapes/ wird hier erstellt)",
+        "browse_merge_sym":  "Symbol-Library auswählen",
+        "browse_merge_fp":   "Footprint-Library (.pretty Ordner) auswählen",
+        "browse_merge_3d":   "3D-Modell-Ordner (.3dshapes Ordner) auswählen",
+        "filetype_sym":      "KiCad Symbol-Library",
+        "filetype_all":      "Alle Dateien",
+        # tooltips
+        "tip_lcsc": (
+            "Einzelne oder mehrere LCSC-IDs.\n"
+            "Trennzeichen: Komma, Semikolon oder Leerzeichen.\n"
+            "Beispiel: C6022114, C2040, C15234\n"
+            "Duplikate werden automatisch entfernt.\n"
+            "Bei mehreren IDs erscheint eine Bestätigungsabfrage."
+        ),
+        "tip_name": (
+            "Dateiname der generierten Library-Dateien (z.B. DRV8317HREER).\n"
+            "Wird automatisch mit dem MPN aus der EasyEDA API befüllt\n"
+            "sobald eine einzelne LCSC-ID eingegeben wird.\n"
+            "Kann manuell überschrieben werden.\n"
+            "Bei mehreren IDs: pro Komponente eigener MPN-Name."
+        ),
+        "tip_newlib_sym": (
+            "Ordner wo die Symbol-Datei abgelegt wird.\n"
+            "Ergebnis: <Ordner>\\MPN.kicad_sym\n\n"
+            "Beispiel: C:\\…\\Kicad Data\\Symbols\\"
+        ),
+        "tip_newlib_fp": (
+            "Ordner wo der Footprint-Unterordner erstellt wird.\n"
+            "Ergebnis: <Ordner>\\MPN.pretty\\\n\n"
+            "Beispiel: C:\\…\\Kicad Data\\Footprints\\"
+        ),
+        "tip_newlib_3d": (
+            "Ordner wo der 3D-Modell-Unterordner erstellt wird.\n"
+            "Ergebnis: <Ordner>\\MPN.3dshapes\\\n\n"
+            "Die 3D-Variable (unten) muss auf diesen Ordner zeigen.\n"
+            "Beispiel: C:\\…\\Kicad Data\\3D Data\\"
+        ),
+        "tip_merge_sym": (
+            "Ziel-Symbol-Library (.kicad_sym Datei).\n"
+            "Das neue Symbol wird in diese Datei eingemergt.\n"
+            "Die Datei wird erstellt falls sie noch nicht existiert.\n"
+            "Beispiel: C:/…/Kicad Data/Symbols/Mycomponents.kicad_sym"
+        ),
+        "tip_merge_fp": (
+            "Ziel-Footprint-Library (.pretty Ordner).\n"
+            "Alle .kicad_mod Dateien werden in diesen Ordner kopiert.\n"
+            "Der Ordner wird erstellt falls er noch nicht existiert.\n"
+            "Beispiel: C:/…/Kicad Data/Footprints/Mycomponents.pretty"
+        ),
+        "tip_merge_3d": (
+            "Ziel-3D-Ordner (.3dshapes Ordner).\n"
+            "Alle 3D-Modelle (.wrl / .step) werden in diesen Ordner kopiert.\n"
+            "Der Ordner wird erstellt falls er noch nicht existiert.\n"
+            "Beispiel: C:/…/Kicad Data/3D Data/Mycomponents.3dshapes\n\n"
+            "Die 3D-Variable (unten) muss auf den ÜBERGEORDNETEN Ordner zeigen,\n"
+            "also z.B. auf 'C:/…/Kicad Data/3D Data/'."
+        ),
+        "tip_rb_full":      "Symbol + Footprint + 3D-Modell importieren (--full)",
+        "tip_rb_symbol":    "Nur das KiCad-Symbol (.kicad_sym) importieren",
+        "tip_rb_footprint": "Nur den Footprint (.kicad_mod) importieren",
+        "tip_rb_3d":        "Nur das 3D-Modell (.wrl / .step) importieren",
+        "tip_cb_overwrite": (
+            "Bestehende Komponente überschreiben (--overwrite).\n"
+            "Ohne diese Option schlägt der Import fehl, wenn die Komponente bereits existiert."
+        ),
+        "tip_cb_cache": (
+            "API-Antworten lokal zwischenspeichern (--use-cache).\n"
+            "Beschleunigt Wiederholungen, verhindert unnötige Netzwerkzugriffe.\n"
+            "Cache liegt in .easyeda_cache/ im aktuellen Verzeichnis."
+        ),
+        "tip_cb_projrel": (
+            "3D-Pfad relativ zum KiCad-Projekt speichern (--project-relative).\n"
+            "Sinnvoll nur wenn --output innerhalb des Projektordners liegt.\n"
+            "Verwendet ${KIPRJMOD} als Basis."
+        ),
+        "tip_cb_debug": (
+            "Ausführliches Debug-Logging von easyeda2kicad aktivieren (--debug).\n"
+            "Nützlich bei Problemen mit dem API-Abruf oder der Konvertierung."
+        ),
+        "tip_cb_verbose": (
+            "Alle Ausgaben von easyeda2kicad anzeigen.\n"
+            "Ohne diese Option: nur [INFO]/[WARNING]/[ERROR]-Zeilen sichtbar."
+        ),
+        "tip_3dvar": (
+            "KiCad-Pfadvariable für 3D-Modelle.\n\n"
+            "easyeda2kicad schreibt in .kicad_mod-Dateien den absoluten Ausgabepfad\n"
+            "als 3D-Modell-Pfad – das ist ein bekannter Bug. Dieser Importer ersetzt\n"
+            "diesen absoluten Pfad automatisch durch die hier eingestellte Variable.\n\n"
+            "Neue Library: Variable muss auf den Ausgabeordner zeigen.\n"
+            "Merge-Modus:  Variable muss auf den Ordner ÜBER dem .3dshapes-Ordner zeigen.\n\n"
+            "Beispiel: ${KICAD_USER_3DMODEL_DIR}\n"
+            "→ In KiCad unter Preferences → Configure Paths setzen."
+        ),
+        "tip_custom": (
+            "Eigene Symbol-Properties hinzufügen (--custom-field).\n"
+            "Leerzeichen-getrennte KEY:VALUE Paare.\n"
+            "Beispiel: Mfr:TI Package:QFN-36 Datasheet:https://ti.com/lit/ds/..."
+        ),
+        # dialogs / log messages
+        "dlg_loading_title": "Lade Komponentennamen\u2026",
+        "dlg_loading_msg":   "Rufe Namen f\u00fcr {n} Komponenten ab\u2026",
+        "dlg_confirm_title": "Import best\u00e4tigen",
+        "dlg_confirm_count": "{n} Komponenten erkannt:",
+        "dlg_confirm_q":     "Alle importieren?",
+        "btn_yes":           "Ja, importieren",
+        "btn_cancel":        "Abbrechen",
+        "warn_no_name":      "  \u26a0 Name nicht gefunden",
+        "err_no_id":         "Fehler: Keine LCSC-ID eingegeben.\n",
+        "info_dups":         "Info: {n} Duplikat(e) entfernt.\n",
+        "no_output":         "(keine Ausgabe)\n",
+        "err_not_found":     "Fehler: Python oder easyeda2kicad nicht gefunden.\n",
+        # merge/distribute messages
+        "merge_no_syms":   "Keine Symbole in generierter Datei gefunden.",
+        "merge_exists":    "'{name}' existiert bereits (\u00dcberschreiben aktivieren).",
+        "merge_invalid":   "Ung\u00fcltige .kicad_sym-Datei (kein schlie\u00dfendes ')').",
+        "sym_src_missing": "Quelldatei nicht gefunden ({name})",
+        "fp_src_missing":  "Quellordner nicht gefunden ({name})",
+        "td_src_missing":  "Quellordner nicht gefunden ({name})",
+        "fp_exists":       "Footprint {name}: bereits vorhanden.",
+        "td_exists":       "3D {name}: bereits vorhanden.",
+        "sym_exists":      "{name} bereits vorhanden.",
+        "no_sym_dir":      "Symbols-Ordner nicht angegeben.",
+        "no_fp_dir":       "Footprints-Ordner nicht angegeben.",
+        "no_3d_dir":       "3D-Ordner nicht angegeben.",
+        "tip_lang":        "Switch to English",
+    },
+    "en": {
+        "window_title":   "LCSC \u2192 KiCad Importer",
+        "lbl_lcsc":       "LCSC ID(s):",
+        "lbl_name":       "Name (MPN):",
+        "lbl_from_api":   "\u2190 from API",
+        "lbl_output":     "Output:",
+        "rb_newlib":      "New Library",
+        "rb_merge":       "Merge into existing Library",
+        "lbl_import":     "Import:",
+        "rb_full":        "All",
+        "rb_symbol":      "Symbol",
+        "rb_footprint":   "Footprint",
+        "rb_3d":          "3D Model",
+        "cb_overwrite":   "Overwrite",
+        "cb_cache":       "Cache",
+        "cb_projrel":     "Proj-relative",
+        "cb_debug":       "Debug",
+        "cb_verbose":     "Verbose Log",
+        "cb_tooltips":    "Tooltips",
+        "lbl_3dvar":      "3D Variable:",
+        "lbl_custom":     "Custom Fields:",
+        "lbl_custom_hint":"e.g.  Mfr:TI  Package:QFN-36",
+        "btn_run":        "Start Import",
+        "btn_clear":      "Clear Log",
+        "frm_log":        "Output",
+        "lbl_newlib_sym": "Symbols Folder:",
+        "lbl_newlib_fp":  "Footprints Folder:",
+        "lbl_newlib_3d":  "3D Folder:",
+        "lbl_merge_sym":  "Symbol Lib:",
+        "lbl_merge_fp":   "Footprint Lib:",
+        "lbl_merge_3d":   "3D Folder:",
+        # browse dialog titles
+        "browse_newlib_sym": "Select Symbols Folder (MPN.kicad_sym will be placed here)",
+        "browse_newlib_fp":  "Select Footprints Folder (MPN.pretty/ will be created here)",
+        "browse_newlib_3d":  "Select 3D Base Folder (MPN.3dshapes/ will be created here)",
+        "browse_merge_sym":  "Select Symbol Library",
+        "browse_merge_fp":   "Select Footprint Library (.pretty folder)",
+        "browse_merge_3d":   "Select 3D Model Folder (.3dshapes folder)",
+        "filetype_sym":      "KiCad Symbol Library",
+        "filetype_all":      "All Files",
+        # tooltips
+        "tip_lcsc": (
+            "Single or multiple LCSC IDs.\n"
+            "Separator: comma, semicolon or space.\n"
+            "Example: C6022114, C2040, C15234\n"
+            "Duplicates are removed automatically.\n"
+            "For multiple IDs a confirmation dialog is shown."
+        ),
+        "tip_name": (
+            "Filename of the generated library files (e.g. DRV8317HREER).\n"
+            "Auto-filled with the MPN from the EasyEDA API\n"
+            "when a single LCSC ID is entered.\n"
+            "Can be overridden manually.\n"
+            "For multiple IDs: each component gets its own MPN name."
+        ),
+        "tip_newlib_sym": (
+            "Folder where the symbol file will be placed.\n"
+            "Result: <folder>\\MPN.kicad_sym\n\n"
+            "Example: C:\\…\\Kicad Data\\Symbols\\"
+        ),
+        "tip_newlib_fp": (
+            "Folder where the footprint subfolder will be created.\n"
+            "Result: <folder>\\MPN.pretty\\\n\n"
+            "Example: C:\\…\\Kicad Data\\Footprints\\"
+        ),
+        "tip_newlib_3d": (
+            "Folder where the 3D model subfolder will be created.\n"
+            "Result: <folder>\\MPN.3dshapes\\\n\n"
+            "The 3D variable (below) must point to this folder.\n"
+            "Example: C:\\…\\Kicad Data\\3D Data\\"
+        ),
+        "tip_merge_sym": (
+            "Target symbol library (.kicad_sym file).\n"
+            "The new symbol will be merged into this file.\n"
+            "The file will be created if it does not exist.\n"
+            "Example: C:/…/Kicad Data/Symbols/Mycomponents.kicad_sym"
+        ),
+        "tip_merge_fp": (
+            "Target footprint library (.pretty folder).\n"
+            "All .kicad_mod files will be copied into this folder.\n"
+            "The folder will be created if it does not exist.\n"
+            "Example: C:/…/Kicad Data/Footprints/Mycomponents.pretty"
+        ),
+        "tip_merge_3d": (
+            "Target 3D folder (.3dshapes folder).\n"
+            "All 3D models (.wrl / .step) will be copied into this folder.\n"
+            "The folder will be created if it does not exist.\n"
+            "Example: C:/…/Kicad Data/3D Data/Mycomponents.3dshapes\n\n"
+            "The 3D variable (below) must point to the PARENT folder,\n"
+            "e.g. 'C:/…/Kicad Data/3D Data/'."
+        ),
+        "tip_rb_full":      "Import symbol + footprint + 3D model (--full)",
+        "tip_rb_symbol":    "Import only the KiCad symbol (.kicad_sym)",
+        "tip_rb_footprint": "Import only the footprint (.kicad_mod)",
+        "tip_rb_3d":        "Import only the 3D model (.wrl / .step)",
+        "tip_cb_overwrite": (
+            "Overwrite existing component (--overwrite).\n"
+            "Without this option the import fails if the component already exists."
+        ),
+        "tip_cb_cache": (
+            "Cache API responses locally (--use-cache).\n"
+            "Speeds up repeated imports, avoids unnecessary network requests.\n"
+            "Cache is stored in .easyeda_cache/ in the current directory."
+        ),
+        "tip_cb_projrel": (
+            "Store 3D path relative to the KiCad project (--project-relative).\n"
+            "Only useful if --output is inside the project folder.\n"
+            "Uses ${KIPRJMOD} as the base."
+        ),
+        "tip_cb_debug": (
+            "Enable verbose debug logging from easyeda2kicad (--debug).\n"
+            "Useful when troubleshooting API fetches or conversions."
+        ),
+        "tip_cb_verbose": (
+            "Show all output from easyeda2kicad.\n"
+            "Without this option: only [INFO]/[WARNING]/[ERROR] lines are shown."
+        ),
+        "tip_3dvar": (
+            "KiCad path variable for 3D models.\n\n"
+            "easyeda2kicad writes the absolute output path into .kicad_mod files\n"
+            "as the 3D model path \u2014 this is a known bug. This importer replaces\n"
+            "the absolute path automatically with the variable set here.\n\n"
+            "New Library: variable must point to the output folder.\n"
+            "Merge mode:  variable must point to the folder ABOVE the .3dshapes folder.\n\n"
+            "Example: ${KICAD_USER_3DMODEL_DIR}\n"
+            "\u2192 Set in KiCad under Preferences \u2192 Configure Paths."
+        ),
+        "tip_custom": (
+            "Add custom symbol properties (--custom-field).\n"
+            "Space-separated KEY:VALUE pairs.\n"
+            "Example: Mfr:TI Package:QFN-36 Datasheet:https://ti.com/lit/ds/..."
+        ),
+        # dialogs / log messages
+        "dlg_loading_title": "Loading component names\u2026",
+        "dlg_loading_msg":   "Fetching names for {n} components\u2026",
+        "dlg_confirm_title": "Confirm Import",
+        "dlg_confirm_count": "{n} components detected:",
+        "dlg_confirm_q":     "Import all?",
+        "btn_yes":           "Yes, import",
+        "btn_cancel":        "Cancel",
+        "warn_no_name":      "  \u26a0 Name not found",
+        "err_no_id":         "Error: No LCSC ID entered.\n",
+        "info_dups":         "Info: {n} duplicate(s) removed.\n",
+        "no_output":         "(no output)\n",
+        "err_not_found":     "Error: Python or easyeda2kicad not found.\n",
+        # merge/distribute messages
+        "merge_no_syms":   "No symbols found in generated file.",
+        "merge_exists":    "'{name}' already exists (enable Overwrite).",
+        "merge_invalid":   "Invalid .kicad_sym file (no closing ')').",
+        "sym_src_missing": "Source file not found ({name})",
+        "fp_src_missing":  "Source folder not found ({name})",
+        "td_src_missing":  "Source folder not found ({name})",
+        "fp_exists":       "Footprint {name}: already exists.",
+        "td_exists":       "3D {name}: already exists.",
+        "sym_exists":      "{name} already exists.",
+        "no_sym_dir":      "Symbols folder not specified.",
+        "no_fp_dir":       "Footprints folder not specified.",
+        "no_3d_dir":       "3D folder not specified.",
+        "tip_lang":        "Auf Deutsch wechseln",
+    },
+}
+
+
+def _t(key: str, **kwargs) -> str:
+    s = _STRINGS[_LANG].get(key, _STRINGS["de"].get(key, key))
+    return s.format(**kwargs) if kwargs else s
+
+
+def _apply_lang():
+    """Update all registered widgets and tooltips to the current language."""
+    root.title(_t("window_title"))
+    for widget, cfg_key, str_key in _lang_widgets:
+        try:
+            widget.config(**{cfg_key: _t(str_key)})
+        except Exception:
+            pass
+    for tip, str_key in _lang_tips:
+        tip.text = _t(str_key)
+
+
+def _toggle_lang():
+    global _LANG
+    _LANG = "en" if _LANG == "de" else "de"
+    btn_lang.config(text="DE" if _LANG == "en" else "EN")
+    _apply_lang()
+
+
+def _reg(widget, key: str):
+    """Register widget for language updates and return it."""
+    _lang_widgets.append((widget, "text", key))
+    return widget
+
+
+def _tip(widget, key: str):
+    """Create a ToolTip with translation key and register it for updates."""
+    t = ToolTip(widget, _t(key))
+    _lang_tips.append((t, key))
+    return t
+
+
 # ── ID parsing ────────────────────────────────────────────────────────────────
 def _parse_ids(raw: str) -> list:
     """Split comma/semicolon/whitespace separated IDs, deduplicate, keep order."""
@@ -250,7 +616,7 @@ def merge_symbol_into_lib(sym_content: str, target_path: Path,
     """
     sym_blocks = _extract_symbol_blocks(sym_content)
     if not sym_blocks:
-        return False, "Keine Symbole in generierter Datei gefunden."
+        return False, _t("merge_no_syms")
 
     sym_blocks = sym_blocks.replace(f'"{old_fp_lib}:', f'"{new_fp_lib}:')
     names = re.findall(r'^\(symbol "([^"]+)"', sym_blocks, re.MULTILINE)
@@ -260,11 +626,11 @@ def merge_symbol_into_lib(sym_content: str, target_path: Path,
         for name in names:
             if f'(symbol "{name}"' in target:
                 if not overwrite:
-                    return False, f"'{name}' existiert bereits (Überschreiben aktivieren)."
+                    return False, _t("merge_exists", name=name)
                 target = _remove_symbol_block(target, name)
         last = target.rfind(')')
         if last == -1:
-            return False, "Ungültige .kicad_sym-Datei (kein schließendes ')')."
+            return False, _t("merge_invalid")
         new_target = target[:last].rstrip() + '\n' + sym_blocks + '\n)\n'
     else:
         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -310,7 +676,7 @@ def merge_into_libs(output_base: str, import_mode: str) -> list:
             )
             msgs.append((f"  Symbol: {msg}\n", "ok" if ok else "error"))
         else:
-            msgs.append((f"  Symbol: Quelldatei nicht gefunden ({sym_src.name})\n", "error"))
+            msgs.append((f"  Symbol: {_t('sym_src_missing', name=sym_src.name)}\n", "error"))
 
     # ── Footprint ─────────────────────────────────────────────────────────────
     if do_fp and fp_lib:
@@ -325,14 +691,14 @@ def merge_into_libs(output_base: str, import_mode: str) -> list:
             for kmod in fp_src_dir.glob("*.kicad_mod"):
                 dst = fp_dst_dir / kmod.name
                 if dst.exists() and not var_overwrite.get():
-                    msgs.append((f"  Footprint {kmod.name}: bereits vorhanden.\n", "error"))
+                    msgs.append((_t("fp_exists", name=kmod.name) + "\n", "error"))
                     continue
                 txt = kmod.read_text(encoding="utf-8").replace(
                     f'"{abs_3d_pfx}', f'"{new_3d_pfx}')
                 dst.write_text(txt, encoding="utf-8")
                 msgs.append((f"  Footprint: {kmod.name} → {fp_dst_dir.name}\n", "ok"))
         else:
-            msgs.append((f"  Footprint: Quellordner nicht gefunden ({fp_src_dir.name})\n", "error"))
+            msgs.append((f"  Footprint: {_t('fp_src_missing', name=fp_src_dir.name)}\n", "error"))
 
     # ── 3D Models ─────────────────────────────────────────────────────────────
     if do_3d and dir_3d:
@@ -345,12 +711,12 @@ def merge_into_libs(output_base: str, import_mode: str) -> list:
                     continue
                 dst = dst_3d / model.name
                 if dst.exists() and not var_overwrite.get():
-                    msgs.append((f"  3D {model.name}: bereits vorhanden.\n", "error"))
+                    msgs.append((_t("td_exists", name=model.name) + "\n", "error"))
                     continue
                 shutil.copy2(model, dst)
                 msgs.append((f"  3D: {model.name} → {dst_3d.name}\n", "ok"))
         else:
-            msgs.append((f"  3D: Quellordner nicht gefunden ({src_3d.name})\n", "error"))
+            msgs.append((f"  3D: {_t('td_src_missing', name=src_3d.name)}\n", "error"))
 
     return msgs
 
@@ -378,7 +744,7 @@ def distribute_new_lib(output_base: str, import_mode: str) -> list:
     # ── Symbol ────────────────────────────────────────────────────────────────
     if do_sym:
         if not sym_dir:
-            msgs.append(("  Symbol: Symbols-Ordner nicht angegeben.\n", "error"))
+            msgs.append((f"  Symbol: {_t('no_sym_dir')}\n", "error"))
         else:
             src = Path(output_base + ".kicad_sym")
             if src.exists():
@@ -386,17 +752,17 @@ def distribute_new_lib(output_base: str, import_mode: str) -> list:
                 dst_dir.mkdir(parents=True, exist_ok=True)
                 dst = dst_dir / src.name
                 if dst.exists() and not var_overwrite.get():
-                    msgs.append((f"  Symbol: {src.name} bereits vorhanden.\n", "error"))
+                    msgs.append((f"  Symbol: {_t('sym_exists', name=src.name)}\n", "error"))
                 else:
                     shutil.copy2(src, dst)
                     msgs.append((f"  Symbol: {src.name} → {dst_dir.name}\\\n", "ok"))
             else:
-                msgs.append((f"  Symbol: Quelldatei nicht gefunden ({src.name})\n", "error"))
+                msgs.append((f"  Symbol: {_t('sym_src_missing', name=src.name)}\n", "error"))
 
     # ── Footprint ─────────────────────────────────────────────────────────────
     if do_fp:
         if not fp_dir:
-            msgs.append(("  Footprint: Footprints-Ordner nicht angegeben.\n", "error"))
+            msgs.append((f"  Footprint: {_t('no_fp_dir')}\n", "error"))
         else:
             fp_src = Path(output_base + ".pretty")
             if fp_src.exists():
@@ -411,19 +777,19 @@ def distribute_new_lib(output_base: str, import_mode: str) -> list:
                 fp_dst_parent.mkdir(parents=True, exist_ok=True)
                 fp_dst = fp_dst_parent / fp_src.name  # MPN.pretty
                 if fp_dst.exists() and not var_overwrite.get():
-                    msgs.append((f"  Footprint: {fp_src.name} bereits vorhanden.\n", "error"))
+                    msgs.append((f"  Footprint: {_t('sym_exists', name=fp_src.name)}\n", "error"))
                 else:
                     if fp_dst.exists():
                         shutil.rmtree(fp_dst)
                     shutil.copytree(fp_src, fp_dst)
                     msgs.append((f"  Footprint: {fp_src.name} → {fp_dst_parent.name}\\\n", "ok"))
             else:
-                msgs.append((f"  Footprint: Quellordner nicht gefunden ({fp_src.name})\n", "error"))
+                msgs.append((f"  Footprint: {_t('fp_src_missing', name=fp_src.name)}\n", "error"))
 
     # ── 3D Models ─────────────────────────────────────────────────────────────
     if do_3d:
         if not dir_3d:
-            msgs.append(("  3D: 3D-Ordner nicht angegeben.\n", "error"))
+            msgs.append((f"  3D: {_t('no_3d_dir')}\n", "error"))
         else:
             src_3d = Path(output_base + ".3dshapes")
             if src_3d.exists():
@@ -431,14 +797,14 @@ def distribute_new_lib(output_base: str, import_mode: str) -> list:
                 dst_parent.mkdir(parents=True, exist_ok=True)
                 dst_3d = dst_parent / src_3d.name  # MPN.3dshapes
                 if dst_3d.exists() and not var_overwrite.get():
-                    msgs.append((f"  3D: {src_3d.name} bereits vorhanden.\n", "error"))
+                    msgs.append((f"  3D: {_t('sym_exists', name=src_3d.name)}\n", "error"))
                 else:
                     if dst_3d.exists():
                         shutil.rmtree(dst_3d)
                     shutil.copytree(src_3d, dst_3d)
                     msgs.append((f"  3D: {src_3d.name} → {dst_parent.name}\\\n", "ok"))
             else:
-                msgs.append((f"  3D: Quellordner nicht gefunden ({src_3d.name})\n", "error"))
+                msgs.append((f"  3D: {_t('td_src_missing', name=src_3d.name)}\n", "error"))
 
     return msgs
 
@@ -451,7 +817,7 @@ _last_fetched_id = None
 def browse_newlib_sym():
     path = filedialog.askdirectory(
         initialdir=entry_newlib_sym.get() or DEFAULT_OUTPUT_DIR,
-        title="Symbols-Ordner auswählen (MPN.kicad_sym wird hier abgelegt)",
+        title=_t("browse_newlib_sym"),
     )
     if path:
         entry_newlib_sym.delete(0, tk.END)
@@ -462,7 +828,7 @@ def browse_newlib_sym():
 def browse_newlib_fp():
     path = filedialog.askdirectory(
         initialdir=entry_newlib_fp.get() or DEFAULT_OUTPUT_DIR,
-        title="Footprints-Ordner auswählen (MPN.pretty/ wird hier erstellt)",
+        title=_t("browse_newlib_fp"),
     )
     if path:
         entry_newlib_fp.delete(0, tk.END)
@@ -473,7 +839,7 @@ def browse_newlib_fp():
 def browse_newlib_3d():
     path = filedialog.askdirectory(
         initialdir=entry_newlib_3d.get() or DEFAULT_OUTPUT_DIR,
-        title="3D-Basisordner auswählen (MPN.3dshapes/ wird hier erstellt)",
+        title=_t("browse_newlib_3d"),
     )
     if path:
         entry_newlib_3d.delete(0, tk.END)
@@ -485,8 +851,8 @@ def browse_merge_sym():
     init = str(Path(entry_merge_sym.get()).parent) if entry_merge_sym.get() else DEFAULT_OUTPUT_DIR
     path = filedialog.askopenfilename(
         initialdir=init,
-        filetypes=[("KiCad Symbol-Library", "*.kicad_sym"), ("Alle Dateien", "*.*")],
-        title="Symbol-Library auswählen",
+        filetypes=[(_t("filetype_sym"), "*.kicad_sym"), (_t("filetype_all"), "*.*")],
+        title=_t("browse_merge_sym"),
     )
     if path:
         entry_merge_sym.delete(0, tk.END)
@@ -497,7 +863,7 @@ def browse_merge_sym():
 def browse_merge_fp():
     path = filedialog.askdirectory(
         initialdir=entry_merge_fp.get() or DEFAULT_OUTPUT_DIR,
-        title="Footprint-Library (.pretty Ordner) auswählen",
+        title=_t("browse_merge_fp"),
     )
     if path:
         entry_merge_fp.delete(0, tk.END)
@@ -508,7 +874,7 @@ def browse_merge_fp():
 def browse_merge_3d():
     path = filedialog.askdirectory(
         initialdir=entry_merge_3d.get() or DEFAULT_OUTPUT_DIR,
-        title="3D-Modell-Ordner (.3dshapes Ordner) auswählen",
+        title=_t("browse_merge_3d"),
     )
     if path:
         entry_merge_3d.delete(0, tk.END)
@@ -562,7 +928,7 @@ def _trigger_mpn_fetch(lcsc_id: str):
 def _apply_mpn(lcsc_id: str, name: str, desc: str = ""):
     global _last_fetched_id
     _last_fetched_id = lcsc_id
-    if not _name_edited.get():
+    if not _name_edited.get() and len(_parse_ids(entry_lcsc.get())) == 1:
         entry_name.config(state=tk.NORMAL)
         entry_name.delete(0, tk.END)
         entry_name.insert(0, name)
@@ -613,7 +979,7 @@ def _run_one(lcsc_id: str, name: str):
             lines = [l for l in raw.splitlines() if _INFO_RE.search(l)]
             display = "\n".join(lines) + "\n" if lines else raw
         tag = "ok" if result.returncode == 0 else "error"
-        root.after(0, lambda d=display, t=tag: log(d if d.strip() else "(keine Ausgabe)\n", t))
+        root.after(0, lambda d=display, t=tag: log(d if d.strip() else _t("no_output"), t))
 
         mode = var_mode.get()
         if result.returncode == 0:
@@ -624,7 +990,7 @@ def _run_one(lcsc_id: str, name: str):
             for msg, t in post_msgs:
                 root.after(0, lambda m=msg, t=t: log(m, t))
     except FileNotFoundError:
-        root.after(0, lambda: log("Fehler: Python oder easyeda2kicad nicht gefunden.\n", "error"))
+        root.after(0, lambda: log(_t("err_not_found"), "error"))
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -634,13 +1000,13 @@ def run_import():
     ids = _parse_ids(raw_input)
 
     if not ids:
-        log("Fehler: Keine LCSC-ID eingegeben.\n", "error")
+        log(_t("err_no_id"), "error")
         return
 
     # Duplicate info
     raw_count = len([p for p in re.split(r"[,;\s]+", raw_input.strip()) if p])
     if raw_count > len(ids):
-        log(f"Info: {raw_count - len(ids)} Duplikat(e) entfernt.\n", "info")
+        log(_t("info_dups", n=raw_count - len(ids)), "info")
 
     btn_run.config(state=tk.DISABLED)
 
@@ -657,10 +1023,10 @@ def run_import():
 def _start_batch_resolve(ids: list):
     """Show loading indicator while fetching MPNs, then open confirm dialog."""
     dlg = tk.Toplevel(root)
-    dlg.title("Lade Komponentennamen\u2026")
+    dlg.title(_t("dlg_loading_title"))
     dlg.resizable(False, False)
     dlg.grab_set()
-    ttk.Label(dlg, text=f"Rufe Namen f\u00fcr {len(ids)} Komponenten ab\u2026",
+    ttk.Label(dlg, text=_t("dlg_loading_msg", n=len(ids)),
               padding=(20, 14, 20, 6)).pack()
     pb = ttk.Progressbar(dlg, mode="indeterminate", length=260)
     pb.pack(padx=20, pady=(0, 16))
@@ -686,11 +1052,11 @@ def _show_batch_confirm(loading_dlg: tk.Toplevel, ids: list, id_name: dict):
     loading_dlg.destroy()
 
     dlg = tk.Toplevel(root)
-    dlg.title("Import best\u00e4tigen")
+    dlg.title(_t("dlg_confirm_title"))
     dlg.resizable(False, False)
     dlg.grab_set()
 
-    ttk.Label(dlg, text=f"{len(ids)} Komponenten erkannt:",
+    ttk.Label(dlg, text=_t("dlg_confirm_count", n=len(ids)),
               padding=(12, 10, 12, 2)).pack(anchor="w")
 
     frame_list = ttk.Frame(dlg, relief="sunken", borderwidth=1)
@@ -707,10 +1073,10 @@ def _show_batch_confirm(loading_dlg: tk.Toplevel, ids: list, id_name: dict):
 
     for lcsc_id in ids:
         mpn = id_name[lcsc_id]
-        suffix = "  \u26a0 Name nicht gefunden" if mpn == lcsc_id else ""
+        suffix = _t("warn_no_name") if mpn == lcsc_id else ""
         listbox.insert(tk.END, f"  {lcsc_id:<12}  \u2192  {mpn}{suffix}")
 
-    ttk.Label(dlg, text="Alle importieren?", padding=(12, 6, 12, 2)).pack(anchor="w")
+    ttk.Label(dlg, text=_t("dlg_confirm_q"), padding=(12, 6, 12, 2)).pack(anchor="w")
 
     frame_btn = ttk.Frame(dlg)
     frame_btn.pack(pady=(4, 12))
@@ -721,8 +1087,8 @@ def _show_batch_confirm(loading_dlg: tk.Toplevel, ids: list, id_name: dict):
         confirmed[0] = True
         dlg.destroy()
 
-    ttk.Button(frame_btn, text="Ja, importieren", command=on_yes).pack(side=tk.LEFT, padx=8)
-    ttk.Button(frame_btn, text="Abbrechen", command=dlg.destroy).pack(side=tk.LEFT, padx=8)
+    ttk.Button(frame_btn, text=_t("btn_yes"), command=on_yes).pack(side=tk.LEFT, padx=8)
+    ttk.Button(frame_btn, text=_t("btn_cancel"), command=dlg.destroy).pack(side=tk.LEFT, padx=8)
 
     dlg.update_idletasks()
     x = root.winfo_x() + (root.winfo_width()  - dlg.winfo_reqwidth())  // 2
@@ -761,7 +1127,7 @@ def clear_log():
 
 # ── Main window ───────────────────────────────────────────────────────────────
 root = tk.Tk()
-root.title("LCSC → KiCad Importer")
+root.title(_t("window_title"))
 root.resizable(False, False)
 
 _name_edited   = tk.BooleanVar(value=False)
@@ -771,53 +1137,55 @@ _var_desc      = tk.StringVar(value="")
 ToolTip.enabled = var_tooltips
 pad = {"padx": 8, "pady": 3}
 
+# ── Language toggle bar ───────────────────────────────────────────────────────
+frame_topbar = ttk.Frame(root)
+frame_topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 0))
+frame_topbar.columnconfigure(0, weight=1)
+btn_lang = ttk.Button(frame_topbar, text="EN", width=4, command=_toggle_lang)
+btn_lang.grid(row=0, column=1, sticky="e")
+_tip(btn_lang, "tip_lang")
+
+# ── Controls frame ────────────────────────────────────────────────────────────
 frame_top = ttk.Frame(root, padding=10)
-frame_top.grid(row=0, column=0, sticky="ew")
+frame_top.grid(row=1, column=0, sticky="ew")
 frame_top.columnconfigure(1, weight=1)
 
 # ── Row 0: LCSC IDs ──────────────────────────────────────────────────────────
-ttk.Label(frame_top, text="LCSC-ID(s):").grid(row=0, column=0, sticky="w", **pad)
+_reg(ttk.Label(frame_top, text=_t("lbl_lcsc")), "lbl_lcsc").grid(
+    row=0, column=0, sticky="w", **pad)
 entry_lcsc = ttk.Entry(frame_top, width=44)
 entry_lcsc.grid(row=0, column=1, columnspan=2, sticky="ew", **pad)
 entry_lcsc.insert(0, "C6022114")
 entry_lcsc.bind("<KeyRelease>", _on_lcsc_keyrelease)
-ToolTip(entry_lcsc,
-        "Einzelne oder mehrere LCSC-IDs.\n"
-        "Trennzeichen: Komma, Semikolon oder Leerzeichen.\n"
-        "Beispiel: C6022114, C2040, C15234\n"
-        "Duplikate werden automatisch entfernt.\n"
-        "Bei mehreren IDs erscheint eine Bestätigungsabfrage.")
+_tip(entry_lcsc, "tip_lcsc")
 
 # ── Row 1: Name (MPN) ────────────────────────────────────────────────────────
-ttk.Label(frame_top, text="Name (MPN):").grid(row=1, column=0, sticky="w", **pad)
+_reg(ttk.Label(frame_top, text=_t("lbl_name")), "lbl_name").grid(
+    row=1, column=0, sticky="w", **pad)
 entry_name = ttk.Entry(frame_top, width=30)
 entry_name.grid(row=1, column=1, sticky="w", **pad)
 entry_name.insert(0, "C6022114")
 entry_name.bind("<Key>", _on_name_keypress)
-ttk.Label(frame_top, text="← aus API", foreground="gray").grid(
-    row=1, column=2, sticky="w", padx=(0, 8))
-ToolTip(entry_name,
-        "Dateiname der generierten Library-Dateien (z.B. DRV8317HREER).\n"
-        "Wird automatisch mit dem MPN aus der EasyEDA API befüllt\n"
-        "sobald eine einzelne LCSC-ID eingegeben wird.\n"
-        "Kann manuell überschrieben werden.\n"
-        "Bei mehreren IDs: pro Komponente eigener MPN-Name.")
+_reg(ttk.Label(frame_top, text=_t("lbl_from_api"), foreground="gray"),
+     "lbl_from_api").grid(row=1, column=2, sticky="w", padx=(0, 8))
+_tip(entry_name, "tip_name")
 
 # ── Row 2: Description hint ──────────────────────────────────────────────────
 lbl_desc = ttk.Label(frame_top, textvariable=_var_desc, foreground="gray",
                      font=("TkDefaultFont", 8))
 lbl_desc.grid(row=2, column=1, columnspan=2, sticky="w", padx=(8, 8), pady=(0, 3))
 
-# ── Row 3: Ausgabe-Modus toggle ───────────────────────────────────────────────
-ttk.Label(frame_top, text="Ausgabe:").grid(row=3, column=0, sticky="w", **pad)
+# ── Row 3: Output mode toggle ─────────────────────────────────────────────────
+_reg(ttk.Label(frame_top, text=_t("lbl_output")), "lbl_output").grid(
+    row=3, column=0, sticky="w", **pad)
 frame_mode_toggle = ttk.Frame(frame_top)
 frame_mode_toggle.grid(row=3, column=1, columnspan=2, sticky="w", **pad)
-ttk.Radiobutton(frame_mode_toggle, text="Neue Library",
-                variable=var_merge_mode, value=False,
-                command=_on_merge_mode_change).pack(side=tk.LEFT, padx=(0, 12))
-ttk.Radiobutton(frame_mode_toggle, text="In bestehende Library mergen",
-                variable=var_merge_mode, value=True,
-                command=_on_merge_mode_change).pack(side=tk.LEFT)
+_reg(ttk.Radiobutton(frame_mode_toggle, text=_t("rb_newlib"),
+                     variable=var_merge_mode, value=False,
+                     command=_on_merge_mode_change), "rb_newlib").pack(side=tk.LEFT, padx=(0, 12))
+_reg(ttk.Radiobutton(frame_mode_toggle, text=_t("rb_merge"),
+                     variable=var_merge_mode, value=True,
+                     command=_on_merge_mode_change), "rb_merge").pack(side=tk.LEFT)
 
 # ── Row 4: Output section (switchable) ───────────────────────────────────────
 frame_output_section = ttk.Frame(frame_top)
@@ -828,93 +1196,77 @@ frame_output_section.columnconfigure(0, weight=1)
 frame_newlib = ttk.Frame(frame_output_section)
 frame_newlib.columnconfigure(1, weight=1)
 
-ttk.Label(frame_newlib, text="Symbols-Ordner:").grid(row=0, column=0, sticky="w", **pad)
+_reg(ttk.Label(frame_newlib, text=_t("lbl_newlib_sym")), "lbl_newlib_sym").grid(
+    row=0, column=0, sticky="w", **pad)
 entry_newlib_sym = ttk.Entry(frame_newlib, width=44)
 entry_newlib_sym.grid(row=0, column=1, sticky="ew", **pad)
 ttk.Button(frame_newlib, text="…", width=3, command=browse_newlib_sym).grid(row=0, column=2, **pad)
-ToolTip(entry_newlib_sym,
-        "Ordner wo die Symbol-Datei abgelegt wird.\n"
-        "Ergebnis: <Ordner>\\MPN.kicad_sym\n\n"
-        "Beispiel: C:\\…\\Kicad Data\\Symbols\\")
+_tip(entry_newlib_sym, "tip_newlib_sym")
 entry_newlib_sym.bind("<FocusOut>", lambda _: _save_config())
 
-ttk.Label(frame_newlib, text="Footprints-Ordner:").grid(row=1, column=0, sticky="w", **pad)
+_reg(ttk.Label(frame_newlib, text=_t("lbl_newlib_fp")), "lbl_newlib_fp").grid(
+    row=1, column=0, sticky="w", **pad)
 entry_newlib_fp = ttk.Entry(frame_newlib, width=44)
 entry_newlib_fp.grid(row=1, column=1, sticky="ew", **pad)
 ttk.Button(frame_newlib, text="…", width=3, command=browse_newlib_fp).grid(row=1, column=2, **pad)
-ToolTip(entry_newlib_fp,
-        "Ordner wo der Footprint-Unterordner erstellt wird.\n"
-        "Ergebnis: <Ordner>\\MPN.pretty\\\n\n"
-        "Beispiel: C:\\…\\Kicad Data\\Footprints\\")
+_tip(entry_newlib_fp, "tip_newlib_fp")
 entry_newlib_fp.bind("<FocusOut>", lambda _: _save_config())
 
-ttk.Label(frame_newlib, text="3D-Ordner:").grid(row=2, column=0, sticky="w", **pad)
+_reg(ttk.Label(frame_newlib, text=_t("lbl_newlib_3d")), "lbl_newlib_3d").grid(
+    row=2, column=0, sticky="w", **pad)
 entry_newlib_3d = ttk.Entry(frame_newlib, width=44)
 entry_newlib_3d.grid(row=2, column=1, sticky="ew", **pad)
 ttk.Button(frame_newlib, text="…", width=3, command=browse_newlib_3d).grid(row=2, column=2, **pad)
-ToolTip(entry_newlib_3d,
-        "Ordner wo der 3D-Modell-Unterordner erstellt wird.\n"
-        "Ergebnis: <Ordner>\\MPN.3dshapes\\\n\n"
-        "Die 3D-Variable (unten) muss auf diesen Ordner zeigen.\n"
-        "Beispiel: C:\\…\\Kicad Data\\3D Data\\")
+_tip(entry_newlib_3d, "tip_newlib_3d")
 entry_newlib_3d.bind("<FocusOut>", lambda _: _save_config())
 
 # Sub-frame B: Merge into existing libraries
 frame_merge = ttk.Frame(frame_output_section)
 frame_merge.columnconfigure(1, weight=1)
 
-ttk.Label(frame_merge, text="Symbol-Lib:").grid(row=0, column=0, sticky="w", **pad)
+_reg(ttk.Label(frame_merge, text=_t("lbl_merge_sym")), "lbl_merge_sym").grid(
+    row=0, column=0, sticky="w", **pad)
 entry_merge_sym = ttk.Entry(frame_merge, width=44)
 entry_merge_sym.grid(row=0, column=1, sticky="ew", **pad)
 ttk.Button(frame_merge, text="…", width=3, command=browse_merge_sym).grid(row=0, column=2, **pad)
-ToolTip(entry_merge_sym,
-        "Ziel-Symbol-Library (.kicad_sym Datei).\n"
-        "Das neue Symbol wird in diese Datei eingemergt.\n"
-        "Die Datei wird erstellt falls sie noch nicht existiert.\n"
-        "Beispiel: C:/…/Kicad Data/Symbols/Mycomponents.kicad_sym")
+_tip(entry_merge_sym, "tip_merge_sym")
 entry_merge_sym.bind("<FocusOut>", lambda _: _save_config())
 
-ttk.Label(frame_merge, text="Footprint-Lib:").grid(row=1, column=0, sticky="w", **pad)
+_reg(ttk.Label(frame_merge, text=_t("lbl_merge_fp")), "lbl_merge_fp").grid(
+    row=1, column=0, sticky="w", **pad)
 entry_merge_fp = ttk.Entry(frame_merge, width=44)
 entry_merge_fp.grid(row=1, column=1, sticky="ew", **pad)
 ttk.Button(frame_merge, text="…", width=3, command=browse_merge_fp).grid(row=1, column=2, **pad)
-ToolTip(entry_merge_fp,
-        "Ziel-Footprint-Library (.pretty Ordner).\n"
-        "Alle .kicad_mod Dateien werden in diesen Ordner kopiert.\n"
-        "Der Ordner wird erstellt falls er noch nicht existiert.\n"
-        "Beispiel: C:/…/Kicad Data/Footprints/Mycomponents.pretty")
+_tip(entry_merge_fp, "tip_merge_fp")
 entry_merge_fp.bind("<FocusOut>", lambda _: _save_config())
 
-ttk.Label(frame_merge, text="3D-Ordner:").grid(row=2, column=0, sticky="w", **pad)
+_reg(ttk.Label(frame_merge, text=_t("lbl_merge_3d")), "lbl_merge_3d").grid(
+    row=2, column=0, sticky="w", **pad)
 entry_merge_3d = ttk.Entry(frame_merge, width=44)
 entry_merge_3d.grid(row=2, column=1, sticky="ew", **pad)
 ttk.Button(frame_merge, text="…", width=3, command=browse_merge_3d).grid(row=2, column=2, **pad)
-ToolTip(entry_merge_3d,
-        "Ziel-3D-Ordner (.3dshapes Ordner).\n"
-        "Alle 3D-Modelle (.wrl / .step) werden in diesen Ordner kopiert.\n"
-        "Der Ordner wird erstellt falls er noch nicht existiert.\n"
-        "Beispiel: C:/…/Kicad Data/3D Data/Mycomponents.3dshapes\n\n"
-        "Die 3D-Variable (unten) muss auf den ÜBERGEORDNETEN Ordner zeigen,\n"
-        "also z.B. auf 'C:/…/Kicad Data/3D Data/'.")
+_tip(entry_merge_3d, "tip_merge_3d")
 entry_merge_3d.bind("<FocusOut>", lambda _: _save_config())
 
 # Initially show new-library frame; load config and apply
 frame_newlib.pack(fill=tk.X)
 
 # ── Row 5: Import mode ───────────────────────────────────────────────────────
-ttk.Label(frame_top, text="Import:").grid(row=5, column=0, sticky="w", **pad)
+_reg(ttk.Label(frame_top, text=_t("lbl_import")), "lbl_import").grid(
+    row=5, column=0, sticky="w", **pad)
 frame_mode = ttk.Frame(frame_top)
 frame_mode.grid(row=5, column=1, columnspan=2, sticky="w", **pad)
 var_mode = tk.StringVar(value="full")
-for val, lbl, tip in [
-    ("full",       "Alles",      "Symbol + Footprint + 3D-Modell importieren (--full)"),
-    ("symbol",     "Symbol",     "Nur das KiCad-Symbol (.kicad_sym) importieren"),
-    ("footprint",  "Footprint",  "Nur den Footprint (.kicad_mod) importieren"),
-    ("3d",         "3D-Modell",  "Nur das 3D-Modell (.wrl / .step) importieren"),
+for val, lbl_key, tip_key in [
+    ("full",       "rb_full",      "tip_rb_full"),
+    ("symbol",     "rb_symbol",    "tip_rb_symbol"),
+    ("footprint",  "rb_footprint", "tip_rb_footprint"),
+    ("3d",         "rb_3d",        "tip_rb_3d"),
 ]:
-    rb = ttk.Radiobutton(frame_mode, text=lbl, variable=var_mode, value=val)
+    rb = ttk.Radiobutton(frame_mode, text=_t(lbl_key), variable=var_mode, value=val)
     rb.pack(side=tk.LEFT, padx=4)
-    ToolTip(rb, tip)
+    _reg(rb, lbl_key)
+    _tip(rb, tip_key)
 
 # ── Row 6: Checkboxes ────────────────────────────────────────────────────────
 frame_opts = ttk.Frame(frame_top)
@@ -925,71 +1277,59 @@ var_projrel   = tk.BooleanVar()
 var_debug     = tk.BooleanVar()
 var_verbose   = tk.BooleanVar()
 
-for lbl, var, tip in [
-    ("Überschreiben", var_overwrite,
-     "Bestehende Komponente überschreiben (--overwrite).\n"
-     "Ohne diese Option schlägt der Import fehl, wenn die Komponente bereits existiert."),
-    ("Cache",         var_cache,
-     "API-Antworten lokal zwischenspeichern (--use-cache).\n"
-     "Beschleunigt Wiederholungen, verhindert unnötige Netzwerkzugriffe.\n"
-     "Cache liegt in .easyeda_cache/ im aktuellen Verzeichnis."),
-    ("Proj-relativ",  var_projrel,
-     "3D-Pfad relativ zum KiCad-Projekt speichern (--project-relative).\n"
-     "Sinnvoll nur wenn --output innerhalb des Projektordners liegt.\n"
-     "Verwendet ${KIPRJMOD} als Basis."),
-    ("Debug",         var_debug,
-     "Ausführliches Debug-Logging von easyeda2kicad aktivieren (--debug).\n"
-     "Nützlich bei Problemen mit dem API-Abruf oder der Konvertierung."),
+for lbl_key, var, tip_key in [
+    ("cb_overwrite", var_overwrite, "tip_cb_overwrite"),
+    ("cb_cache",     var_cache,     "tip_cb_cache"),
+    ("cb_projrel",   var_projrel,   "tip_cb_projrel"),
+    ("cb_debug",     var_debug,     "tip_cb_debug"),
 ]:
-    cb = ttk.Checkbutton(frame_opts, text=lbl, variable=var)
+    cb = ttk.Checkbutton(frame_opts, text=_t(lbl_key), variable=var)
     cb.pack(side=tk.LEFT, padx=4)
-    ToolTip(cb, tip)
+    _reg(cb, lbl_key)
+    _tip(cb, tip_key)
 
 ttk.Separator(frame_opts, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
-cb_v = ttk.Checkbutton(frame_opts, text="Verbose Log", variable=var_verbose)
+cb_v = ttk.Checkbutton(frame_opts, text=_t("cb_verbose"), variable=var_verbose)
 cb_v.pack(side=tk.LEFT, padx=4)
-ToolTip(cb_v,
-        "Alle Ausgaben von easyeda2kicad anzeigen.\n"
-        "Ohne diese Option: nur [INFO]/[WARNING]/[ERROR]-Zeilen sichtbar.")
+_reg(cb_v, "cb_verbose")
+_tip(cb_v, "tip_cb_verbose")
 ttk.Separator(frame_opts, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
-ttk.Checkbutton(frame_opts, text="Tooltips", variable=var_tooltips).pack(side=tk.LEFT, padx=4)
+cb_tt = ttk.Checkbutton(frame_opts, text=_t("cb_tooltips"), variable=var_tooltips)
+cb_tt.pack(side=tk.LEFT, padx=4)
+_reg(cb_tt, "cb_tooltips")
 
 # ── Row 7: 3D variable ───────────────────────────────────────────────────────
-ttk.Label(frame_top, text="3D-Variable:").grid(row=7, column=0, sticky="w", **pad)
+_reg(ttk.Label(frame_top, text=_t("lbl_3dvar")), "lbl_3dvar").grid(
+    row=7, column=0, sticky="w", **pad)
 entry_3dvar = ttk.Entry(frame_top, width=36)
 entry_3dvar.grid(row=7, column=1, sticky="w", **pad)
 entry_3dvar.insert(0, DEFAULT_3D_VAR)
-ToolTip(entry_3dvar,
-        "KiCad-Pfadvariable für 3D-Modelle.\n\n"
-        "easyeda2kicad schreibt in .kicad_mod-Dateien den absoluten Ausgabepfad\n"
-        "als 3D-Modell-Pfad – das ist ein bekannter Bug. Dieser Importer ersetzt\n"
-        "diesen absoluten Pfad automatisch durch die hier eingestellte Variable.\n\n"
-        "Neue Library: Variable muss auf den Ausgabeordner zeigen.\n"
-        "Merge-Modus:  Variable muss auf den Ordner ÜBER dem .3dshapes-Ordner zeigen.\n\n"
-        "Beispiel: ${KICAD_USER_3DMODEL_DIR}\n"
-        "→ In KiCad unter Preferences → Configure Paths setzen.")
+_tip(entry_3dvar, "tip_3dvar")
 
 # ── Row 8: Custom fields ─────────────────────────────────────────────────────
-ttk.Label(frame_top, text="Custom Fields:").grid(row=8, column=0, sticky="w", **pad)
+_reg(ttk.Label(frame_top, text=_t("lbl_custom")), "lbl_custom").grid(
+    row=8, column=0, sticky="w", **pad)
 entry_custom = ttk.Entry(frame_top, width=44)
 entry_custom.grid(row=8, column=1, columnspan=2, sticky="ew", **pad)
-ToolTip(entry_custom,
-        "Eigene Symbol-Properties hinzufügen (--custom-field).\n"
-        "Leerzeichen-getrennte KEY:VALUE Paare.\n"
-        "Beispiel: Mfr:TI Package:QFN-36 Datasheet:https://ti.com/lit/ds/...")
-ttk.Label(frame_top, text="z.B.  Mfr:TI  Package:QFN-36", foreground="gray").grid(
-    row=9, column=1, columnspan=2, sticky="w", padx=8)
+_tip(entry_custom, "tip_custom")
+lbl_custom_hint = ttk.Label(frame_top, text=_t("lbl_custom_hint"), foreground="gray")
+lbl_custom_hint.grid(row=9, column=1, columnspan=2, sticky="w", padx=8)
+_reg(lbl_custom_hint, "lbl_custom_hint")
 
 # ── Row 10: Buttons ──────────────────────────────────────────────────────────
 frame_btn = ttk.Frame(frame_top)
 frame_btn.grid(row=10, column=0, columnspan=3, pady=(8, 0))
-btn_run = ttk.Button(frame_btn, text="Import starten", command=run_import)
+btn_run = ttk.Button(frame_btn, text=_t("btn_run"), command=run_import)
 btn_run.pack(side=tk.LEFT, padx=4)
-ttk.Button(frame_btn, text="Log leeren", command=clear_log).pack(side=tk.LEFT, padx=4)
+_reg(btn_run, "btn_run")
+btn_clear_log = ttk.Button(frame_btn, text=_t("btn_clear"), command=clear_log)
+btn_clear_log.pack(side=tk.LEFT, padx=4)
+_reg(btn_clear_log, "btn_clear")
 
 # ── Log area ─────────────────────────────────────────────────────────────────
-frame_log = ttk.LabelFrame(root, text="Ausgabe", padding=6)
-frame_log.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+frame_log = ttk.LabelFrame(root, text=_t("frm_log"), padding=6)
+frame_log.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 10))
+_reg(frame_log, "frm_log")
 
 text_log = scrolledtext.ScrolledText(frame_log, width=72, height=10, state=tk.DISABLED,
                                      font=("Consolas", 9), wrap=tk.WORD)
