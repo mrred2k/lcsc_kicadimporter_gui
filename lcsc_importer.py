@@ -5,6 +5,8 @@ import threading
 import sys
 import re
 import json
+import os
+import glob
 import shutil
 import tempfile
 from pathlib import Path
@@ -81,13 +83,12 @@ _STRINGS: dict = {
         "rb_newlib":      "Neue Library",
         "rb_merge":       "In bestehende Library mergen",
         "lbl_import":     "Import:",
-        "rb_full":        "Alles",
         "rb_symbol":      "Symbol",
         "rb_footprint":   "Footprint",
         "rb_3d":          "3D-Modell",
         "cb_overwrite":   "Überschreiben",
         "cb_cache":       "Cache",
-        "cb_projrel":     "Proj-relativ",
+        "cb_projrel":     "Im Projektordner",
         "cb_debug":       "Debug",
         "cb_verbose":     "Verbose Log",
         "cb_tooltips":    "Tooltips",
@@ -95,6 +96,7 @@ _STRINGS: dict = {
         "lbl_custom":     "Custom Fields:",
         "lbl_custom_hint":"z.B.  Mfr:TI  Package:QFN-36",
         "btn_run":        "Import starten",
+        "btn_dryrun":     "Trockenübung",
         "btn_clear":      "Log leeren",
         "frm_log":        "Ausgabe",
         "lbl_newlib_sym": "Symbols-Ordner:",
@@ -163,10 +165,9 @@ _STRINGS: dict = {
             "Die 3D-Variable (unten) muss auf den ÜBERGEORDNETEN Ordner zeigen,\n"
             "also z.B. auf 'C:/…/Kicad Data/3D Data/'."
         ),
-        "tip_rb_full":      "Symbol + Footprint + 3D-Modell importieren (--full)",
-        "tip_rb_symbol":    "Nur das KiCad-Symbol (.kicad_sym) importieren",
-        "tip_rb_footprint": "Nur den Footprint (.kicad_mod) importieren",
-        "tip_rb_3d":        "Nur das 3D-Modell (.wrl / .step) importieren",
+        "tip_rb_symbol":    "KiCad-Symbol (.kicad_sym) importieren",
+        "tip_rb_footprint": "Footprint (.kicad_mod) importieren",
+        "tip_rb_3d":        "3D-Modell (.wrl / .step) importieren",
         "tip_cb_overwrite": (
             "Bestehende Komponente überschreiben (--overwrite).\n"
             "Ohne diese Option schlägt der Import fehl, wenn die Komponente bereits existiert."
@@ -177,9 +178,12 @@ _STRINGS: dict = {
             "Cache liegt in .easyeda_cache/ im aktuellen Verzeichnis."
         ),
         "tip_cb_projrel": (
-            "3D-Pfad relativ zum KiCad-Projekt speichern (--project-relative).\n"
-            "Sinnvoll nur wenn --output innerhalb des Projektordners liegt.\n"
-            "Verwendet ${KIPRJMOD} als Basis."
+            "Speichert den 3D-Pfad relativ zum KiCad-Projekt (--project-relative).\n"
+            "Verwendet ${KIPRJMOD} — den Ordner der .kicad_pro-Datei — als Basis.\n\n"
+            "Zwei Systeme:\n"
+            "  Global: 3D-Variable oben setzen, diese Option AUS\n"
+            "  Projektordner: Ausgabe liegt im Projektordner, diese Option AN\n\n"
+            "Bei globalen Libraries (z.B. git-Submodule) diese Option NICHT verwenden."
         ),
         "tip_cb_debug": (
             "Ausführliches Debug-Logging von easyeda2kicad aktivieren (--debug).\n"
@@ -196,7 +200,8 @@ _STRINGS: dict = {
             "diesen absoluten Pfad automatisch durch die hier eingestellte Variable.\n\n"
             "Neue Library: Variable muss auf den Ausgabeordner zeigen.\n"
             "Merge-Modus:  Variable muss auf den Ordner ÜBER dem .3dshapes-Ordner zeigen.\n\n"
-            "Beispiel: ${KICAD_USER_3DMODEL_DIR}\n"
+            "Vorschläge werden automatisch aus der KiCad-Konfiguration gelesen\n"
+            "(alle installierten Versionen, neueste zuerst).\n"
             "→ In KiCad unter Preferences → Configure Paths setzen."
         ),
         "tip_custom": (
@@ -204,23 +209,46 @@ _STRINGS: dict = {
             "Leerzeichen-getrennte KEY:VALUE Paare.\n"
             "Beispiel: Mfr:TI Package:QFN-36 Datasheet:https://ti.com/lit/ds/..."
         ),
+        "tip_dryrun": (
+            "Simuliert den Import ohne Dateien zu schreiben.\n"
+            "Zeigt welche Dateien angelegt, überschrieben oder\n"
+            "übersprungen würden — nützlich vor großen Batch-Imports."
+        ),
+        "btn_kicad_vars":  "Von KiCad",
+        "tip_kicad_vars": (
+            "Pfadvariablen aus KiCad-Konfiguration laden.\n"
+            "Liest kicad_common.json aller installierten Versionen\n"
+            "(neueste zuerst) und bietet die gefundenen Variablen\n"
+            "als Vorschläge in der 3D-Variable-Auswahl an."
+        ),
+        "log_kicad_vars_found": "KiCad-Variablen geladen (v{version}):\n",
+        "log_kicad_vars_none":  "Keine KiCad-Konfiguration gefunden.\n",
         # dialogs / log messages
-        "dlg_loading_title": "Lade Komponentennamen\u2026",
-        "dlg_loading_msg":   "Rufe Namen f\u00fcr {n} Komponenten ab\u2026",
-        "dlg_confirm_title": "Import best\u00e4tigen",
+        "dlg_loading_title": "Lade Komponentennamen…",
+        "dlg_loading_msg":   "Rufe Namen für {n} Komponenten ab…",
+        "dlg_confirm_title": "Import bestätigen",
         "dlg_confirm_count": "{n} Komponenten erkannt:",
         "dlg_confirm_q":     "Alle importieren?",
         "btn_yes":           "Ja, importieren",
         "btn_cancel":        "Abbrechen",
-        "warn_no_name":      "  \u26a0 Name nicht gefunden",
+        "warn_no_name":      "  ⚠ Name nicht gefunden",
         "err_no_id":         "Fehler: Keine LCSC-ID eingegeben.\n",
+        "err_no_modes":      "Fehler: Kein Import-Typ ausgewählt (Symbol/Footprint/3D).\n",
         "info_dups":         "Info: {n} Duplikat(e) entfernt.\n",
         "no_output":         "(keine Ausgabe)\n",
         "err_not_found":     "Fehler: Python oder easyeda2kicad nicht gefunden.\n",
+        # dry run
+        "dryrun_header":      "TROCKENÜBUNG — kein Import, keine Dateien werden geschrieben",
+        "dryrun_footer":      "── Ende Trockenübung ──",
+        "dryrun_create":      "NEU",
+        "dryrun_overwrite":   "ÜBERSCHREIBEN",
+        "dryrun_skip":        "SKIP (existiert, Überschreiben aus)",
+        "dryrun_new_lib":     "neue Datei",
+        "dryrun_batch_note":  "  (Name noch nicht aufgelöst — LCSC-ID als Platzhalter)\n",
         # merge/distribute messages
         "merge_no_syms":   "Keine Symbole in generierter Datei gefunden.",
-        "merge_exists":    "'{name}' existiert bereits (\u00dcberschreiben aktivieren).",
-        "merge_invalid":   "Ung\u00fcltige .kicad_sym-Datei (kein schlie\u00dfendes ')').",
+        "merge_exists":    "'{name}' existiert bereits (Überschreiben aktivieren).",
+        "merge_invalid":   "Ungültige .kicad_sym-Datei (kein schließendes ')').",
         "sym_src_missing": "Quelldatei nicht gefunden ({name})",
         "fp_src_missing":  "Quellordner nicht gefunden ({name})",
         "td_src_missing":  "Quellordner nicht gefunden ({name})",
@@ -233,21 +261,20 @@ _STRINGS: dict = {
         "tip_lang":        "Switch to English",
     },
     "en": {
-        "window_title":   "LCSC \u2192 KiCad Importer",
+        "window_title":   "LCSC → KiCad Importer",
         "lbl_lcsc":       "LCSC ID(s):",
         "lbl_name":       "Name (MPN):",
-        "lbl_from_api":   "\u2190 from API",
+        "lbl_from_api":   "← from API",
         "lbl_output":     "Output:",
         "rb_newlib":      "New Library",
         "rb_merge":       "Merge into existing Library",
         "lbl_import":     "Import:",
-        "rb_full":        "All",
         "rb_symbol":      "Symbol",
         "rb_footprint":   "Footprint",
         "rb_3d":          "3D Model",
         "cb_overwrite":   "Overwrite",
         "cb_cache":       "Cache",
-        "cb_projrel":     "Proj-relative",
+        "cb_projrel":     "In project folder",
         "cb_debug":       "Debug",
         "cb_verbose":     "Verbose Log",
         "cb_tooltips":    "Tooltips",
@@ -255,6 +282,7 @@ _STRINGS: dict = {
         "lbl_custom":     "Custom Fields:",
         "lbl_custom_hint":"e.g.  Mfr:TI  Package:QFN-36",
         "btn_run":        "Start Import",
+        "btn_dryrun":     "Dry Run",
         "btn_clear":      "Clear Log",
         "frm_log":        "Output",
         "lbl_newlib_sym": "Symbols Folder:",
@@ -323,10 +351,9 @@ _STRINGS: dict = {
             "The 3D variable (below) must point to the PARENT folder,\n"
             "e.g. 'C:/…/Kicad Data/3D Data/'."
         ),
-        "tip_rb_full":      "Import symbol + footprint + 3D model (--full)",
-        "tip_rb_symbol":    "Import only the KiCad symbol (.kicad_sym)",
-        "tip_rb_footprint": "Import only the footprint (.kicad_mod)",
-        "tip_rb_3d":        "Import only the 3D model (.wrl / .step)",
+        "tip_rb_symbol":    "Import the KiCad symbol (.kicad_sym)",
+        "tip_rb_footprint": "Import the footprint (.kicad_mod)",
+        "tip_rb_3d":        "Import the 3D model (.wrl / .step)",
         "tip_cb_overwrite": (
             "Overwrite existing component (--overwrite).\n"
             "Without this option the import fails if the component already exists."
@@ -337,9 +364,12 @@ _STRINGS: dict = {
             "Cache is stored in .easyeda_cache/ in the current directory."
         ),
         "tip_cb_projrel": (
-            "Store 3D path relative to the KiCad project (--project-relative).\n"
-            "Only useful if --output is inside the project folder.\n"
-            "Uses ${KIPRJMOD} as the base."
+            "Stores the 3D path relative to the KiCad project (--project-relative).\n"
+            "Uses ${KIPRJMOD} — the folder of the .kicad_pro file — as base.\n\n"
+            "Two systems:\n"
+            "  Global: set 3D variable above, leave this OFF\n"
+            "  Project folder: output is inside the project folder, turn this ON\n\n"
+            "Do NOT use for global libraries (e.g. git submodules)."
         ),
         "tip_cb_debug": (
             "Enable verbose debug logging from easyeda2kicad (--debug).\n"
@@ -352,31 +382,55 @@ _STRINGS: dict = {
         "tip_3dvar": (
             "KiCad path variable for 3D models.\n\n"
             "easyeda2kicad writes the absolute output path into .kicad_mod files\n"
-            "as the 3D model path \u2014 this is a known bug. This importer replaces\n"
+            "as the 3D model path — this is a known bug. This importer replaces\n"
             "the absolute path automatically with the variable set here.\n\n"
             "New Library: variable must point to the output folder.\n"
             "Merge mode:  variable must point to the folder ABOVE the .3dshapes folder.\n\n"
-            "Example: ${KICAD_USER_3DMODEL_DIR}\n"
-            "\u2192 Set in KiCad under Preferences \u2192 Configure Paths."
+            "Suggestions are loaded automatically from the KiCad configuration\n"
+            "(all installed versions, newest first).\n"
+            "→ Set in KiCad under Preferences → Configure Paths."
         ),
         "tip_custom": (
             "Add custom symbol properties (--custom-field).\n"
             "Space-separated KEY:VALUE pairs.\n"
             "Example: Mfr:TI Package:QFN-36 Datasheet:https://ti.com/lit/ds/..."
         ),
+        "tip_dryrun": (
+            "Simulates the import without writing any files.\n"
+            "Shows which files would be created, overwritten,\n"
+            "or skipped — useful before large batch imports."
+        ),
+        "btn_kicad_vars":  "From KiCad",
+        "tip_kicad_vars": (
+            "Load path variables from KiCad configuration.\n"
+            "Reads kicad_common.json from all installed versions\n"
+            "(newest first) and offers the found variables\n"
+            "as suggestions in the 3D variable dropdown."
+        ),
+        "log_kicad_vars_found": "KiCad variables loaded (v{version}):\n",
+        "log_kicad_vars_none":  "No KiCad configuration found.\n",
         # dialogs / log messages
-        "dlg_loading_title": "Loading component names\u2026",
-        "dlg_loading_msg":   "Fetching names for {n} components\u2026",
+        "dlg_loading_title": "Loading component names…",
+        "dlg_loading_msg":   "Fetching names for {n} components…",
         "dlg_confirm_title": "Confirm Import",
         "dlg_confirm_count": "{n} components detected:",
         "dlg_confirm_q":     "Import all?",
         "btn_yes":           "Yes, import",
         "btn_cancel":        "Cancel",
-        "warn_no_name":      "  \u26a0 Name not found",
+        "warn_no_name":      "  ⚠ Name not found",
         "err_no_id":         "Error: No LCSC ID entered.\n",
+        "err_no_modes":      "Error: No import type selected (Symbol/Footprint/3D).\n",
         "info_dups":         "Info: {n} duplicate(s) removed.\n",
         "no_output":         "(no output)\n",
         "err_not_found":     "Error: Python or easyeda2kicad not found.\n",
+        # dry run
+        "dryrun_header":      "DRY RUN — no import, no files will be written",
+        "dryrun_footer":      "── End Dry Run ──",
+        "dryrun_create":      "CREATE",
+        "dryrun_overwrite":   "OVERWRITE",
+        "dryrun_skip":        "SKIP (exists, overwrite off)",
+        "dryrun_new_lib":     "new file",
+        "dryrun_batch_note":  "  (name not yet resolved — using LCSC ID as placeholder)\n",
         # merge/distribute messages
         "merge_no_syms":   "No symbols found in generated file.",
         "merge_exists":    "'{name}' already exists (enable Overwrite).",
@@ -415,7 +469,8 @@ def _apply_lang():
 def _toggle_lang():
     global _LANG
     _LANG = "en" if _LANG == "de" else "de"
-    btn_lang.config(text="DE" if _LANG == "en" else "EN")
+    # Show the flag of the language you'd switch TO next
+    btn_lang.config(text="🇩🇪" if _LANG == "en" else "🇬🇧")
     _apply_lang()
 
 
@@ -560,6 +615,52 @@ def _save_config():
         pass
 
 
+# ── KiCad configuration reader ────────────────────────────────────────────────
+def _load_kicad_vars() -> tuple:
+    """Read path variables from KiCad's kicad_common.json (any installed version).
+
+    Scans all version subdirectories under the platform-specific KiCad config
+    folder and returns (vars_dict, config_path) from the most recently modified
+    config found. Returns ({}, '') if nothing is found.
+    """
+    search_roots = []
+    appdata = os.environ.get("APPDATA", "")
+    if appdata:
+        search_roots.append(os.path.join(appdata, "kicad"))
+    home = Path.home()
+    search_roots += [
+        str(home / ".config" / "kicad"),
+        str(home / "Library" / "Preferences" / "kicad"),
+    ]
+    for kicad_root in search_roots:
+        configs = glob.glob(os.path.join(kicad_root, "*", "kicad_common.json"))
+        if configs:
+            configs.sort(key=os.path.getmtime, reverse=True)
+            try:
+                data = json.loads(Path(configs[0]).read_text(encoding="utf-8"))
+                return data.get("environment", {}).get("vars", {}), configs[0]
+            except Exception:
+                pass
+    return {}, ""
+
+
+def _reload_kicad_vars():
+    """Load KiCad path variables, update the 3D variable Combobox, and log results."""
+    kicad_vars, config_path = _load_kicad_vars()
+    suggestions = [f"${{{k}}}" for k in kicad_vars]
+    if DEFAULT_3D_VAR not in suggestions:
+        suggestions.insert(0, DEFAULT_3D_VAR)
+    entry_3dvar["values"] = suggestions
+
+    if kicad_vars:
+        version = Path(config_path).parent.name  # e.g. "9.0"
+        log(_t("log_kicad_vars_found", version=version), "info")
+        for k, v in kicad_vars.items():
+            log(f"  ${{{k}}} = {v}\n", "ok")
+    else:
+        log(_t("log_kicad_vars_none"), "error")
+
+
 # ── Symbol merge helpers ──────────────────────────────────────────────────────
 def _extract_symbol_blocks(content: str) -> str:
     """Extract all top-level (symbol ...) blocks from a .kicad_sym string."""
@@ -647,7 +748,7 @@ def merge_symbol_into_lib(sym_content: str, target_path: Path,
 
 
 # ── Merge-into-libs orchestrator ──────────────────────────────────────────────
-def merge_into_libs(output_base: str, import_mode: str) -> list:
+def merge_into_libs(output_base: str, import_modes: set) -> list:
     """Merge generated temp files into the configured target libraries.
 
     Returns list of (message, tag) tuples for the log.
@@ -658,9 +759,9 @@ def merge_into_libs(output_base: str, import_mode: str) -> list:
     fp_lib  = entry_merge_fp.get().strip()
     dir_3d  = entry_merge_3d.get().strip()
 
-    do_sym = import_mode in ("full", "symbol")
-    do_fp  = import_mode in ("full", "footprint")
-    do_3d  = import_mode in ("full", "3d")
+    do_sym = "symbol" in import_modes
+    do_fp  = "footprint" in import_modes
+    do_3d  = "3d" in import_modes
 
     # ── Symbol ────────────────────────────────────────────────────────────────
     if do_sym and sym_lib:
@@ -722,7 +823,7 @@ def merge_into_libs(output_base: str, import_mode: str) -> list:
 
 
 # ── New-library distributor ───────────────────────────────────────────────────
-def distribute_new_lib(output_base: str, import_mode: str) -> list:
+def distribute_new_lib(output_base: str, import_modes: set) -> list:
     """Copy generated temp files into the configured target directories.
 
     Neue Library mode: MPN.kicad_sym → sym_dir/,
@@ -737,9 +838,9 @@ def distribute_new_lib(output_base: str, import_mode: str) -> list:
     dir_3d  = entry_newlib_3d.get().strip()
     var3d   = entry_3dvar.get().strip() or DEFAULT_3D_VAR
 
-    do_sym = import_mode in ("full", "symbol")
-    do_fp  = import_mode in ("full", "footprint")
-    do_3d  = import_mode in ("full", "3d")
+    do_sym = "symbol" in import_modes
+    do_fp  = "footprint" in import_modes
+    do_3d  = "3d" in import_modes
 
     # ── Symbol ────────────────────────────────────────────────────────────────
     if do_sym:
@@ -812,6 +913,16 @@ def distribute_new_lib(output_base: str, import_mode: str) -> list:
 # ── UI callbacks ─────────────────────────────────────────────────────────────
 _mpn_timer = None
 _last_fetched_id = None
+_prev_3dvar = ""  # saved when switching into project-relative mode
+
+
+def _on_projrel_change():
+    global _prev_3dvar
+    if var_projrel.get():
+        _prev_3dvar = entry_3dvar.get()
+        entry_3dvar.set("${KIPRJMOD}")
+    else:
+        entry_3dvar.set(_prev_3dvar or DEFAULT_3D_VAR)
 
 
 def browse_newlib_sym():
@@ -941,13 +1052,18 @@ def _on_name_keypress(*_):
     _var_desc.set("")
 
 
+def _get_modes() -> set:
+    """Return set of enabled import types from the checkboxes."""
+    modes = set()
+    if var_mode_sym.get(): modes.add("symbol")
+    if var_mode_fp.get():  modes.add("footprint")
+    if var_mode_3d.get():  modes.add("3d")
+    return modes
+
+
 def _build_cmd(lcsc_id: str, output_base: str) -> list:
-    cmd = [sys.executable, "-m", "easyeda2kicad"]
-    mode = var_mode.get()
-    if mode == "full":       cmd.append("--full")
-    elif mode == "symbol":   cmd.append("--symbol")
-    elif mode == "footprint":cmd.append("--footprint")
-    elif mode == "3d":       cmd.append("--3d")
+    # Always fetch everything; _get_modes() controls what gets distributed
+    cmd = [sys.executable, "-m", "easyeda2kicad", "--full"]
     cmd += ["--lcsc_id", lcsc_id, "--output", output_base]
     if var_overwrite.get(): cmd.append("--overwrite")
     if var_cache.get():     cmd.append("--use-cache")
@@ -981,18 +1097,135 @@ def _run_one(lcsc_id: str, name: str):
         tag = "ok" if result.returncode == 0 else "error"
         root.after(0, lambda d=display, t=tag: log(d if d.strip() else _t("no_output"), t))
 
-        mode = var_mode.get()
+        modes = _get_modes()
         if result.returncode == 0:
             if desc:
                 _patch_description(output_base, desc)
             post_msgs = (merge_into_libs if var_merge_mode.get() else distribute_new_lib)(
-                output_base, mode)
+                output_base, modes)
             for msg, t in post_msgs:
                 root.after(0, lambda m=msg, t=t: log(m, t))
     except FileNotFoundError:
         root.after(0, lambda: log(_t("err_not_found"), "error"))
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ── Dry run ───────────────────────────────────────────────────────────────────
+def _dry_run_one(lcsc_id: str, name: str, modes: set, is_batch: bool = False):
+    """Log what would happen for one component without writing any files."""
+    log(f"► {lcsc_id}  →  {name}\n", "info")
+    if is_batch:
+        log(_t("dryrun_batch_note"), "info")
+
+    ow = var_overwrite.get()
+    do_sym = "symbol" in modes
+    do_fp  = "footprint" in modes
+    do_3d  = "3d" in modes
+
+    def _check(label: str, path: Path):
+        if path.exists():
+            if ow:
+                log(f"  {label}: ⚠ {_t('dryrun_overwrite')}: {path.name}\n", "info")
+            else:
+                log(f"  {label}: ✗ {_t('dryrun_skip')}: {path.name}\n", "error")
+        else:
+            log(f"  {label}: ✓ {_t('dryrun_create')}: {path.name}\n", "ok")
+
+    if var_merge_mode.get():
+        sym_lib = entry_merge_sym.get().strip()
+        fp_lib  = entry_merge_fp.get().strip()
+        dir_3d  = entry_merge_3d.get().strip()
+
+        if do_sym:
+            if not sym_lib:
+                log(f"  Symbol: – {_t('no_sym_dir')}\n", "error")
+            else:
+                p = Path(sym_lib)
+                if p.exists():
+                    try:
+                        in_lib = f'(symbol "{name}"' in p.read_text(encoding="utf-8", errors="ignore")
+                    except Exception:
+                        in_lib = False
+                    if in_lib:
+                        action = _t("dryrun_overwrite") if ow else _t("dryrun_skip")
+                        tag = "info" if ow else "error"
+                        icon = "⚠" if ow else "✗"
+                        log(f"  Symbol: {icon} {action}: '{name}' in {p.name}\n", tag)
+                    else:
+                        log(f"  Symbol: ✓ {_t('dryrun_create')}: '{name}' → {p.name}\n", "ok")
+                else:
+                    log(f"  Symbol: ✓ {_t('dryrun_create')} ({_t('dryrun_new_lib')}): {p.name}\n", "ok")
+
+        if do_fp:
+            if not fp_lib:
+                log(f"  Footprint: – {_t('no_fp_dir')}\n", "error")
+            else:
+                p = Path(fp_lib)
+                n_ex = len(list(p.glob("*.kicad_mod"))) if p.exists() else 0
+                log(f"  Footprint: ✓ → {p.name}  ({n_ex} existing files)\n", "ok")
+
+        if do_3d:
+            if not dir_3d:
+                log(f"  3D: – {_t('no_3d_dir')}\n", "error")
+            else:
+                p = Path(dir_3d)
+                n_ex = sum(1 for f in p.iterdir() if f.is_file()) if p.exists() else 0
+                log(f"  3D: ✓ → {p.name}  ({n_ex} existing files)\n", "ok")
+    else:
+        sym_dir = entry_newlib_sym.get().strip()
+        fp_dir  = entry_newlib_fp.get().strip()
+        dir_3d  = entry_newlib_3d.get().strip()
+
+        if do_sym:
+            if not sym_dir:
+                log(f"  Symbol: – {_t('no_sym_dir')}\n", "error")
+            else:
+                _check("Symbol", Path(sym_dir) / f"{name}.kicad_sym")
+
+        if do_fp:
+            if not fp_dir:
+                log(f"  Footprint: – {_t('no_fp_dir')}\n", "error")
+            else:
+                _check("Footprint", Path(fp_dir) / f"{name}.pretty")
+
+        if do_3d:
+            if not dir_3d:
+                log(f"  3D: – {_t('no_3d_dir')}\n", "error")
+            else:
+                _check("3D", Path(dir_3d) / f"{name}.3dshapes")
+
+
+def dry_run():
+    raw_input = entry_lcsc.get().strip()
+    ids = _parse_ids(raw_input)
+    if not ids:
+        log(_t("err_no_id"), "error")
+        return
+    modes = _get_modes()
+    if not modes:
+        log(_t("err_no_modes"), "error")
+        return
+
+    sep = "─" * 56
+    log(f"{sep}\n", "info")
+    log(f"{_t('dryrun_header')}\n", "info")
+    log(f"{sep}\n", "info")
+
+    raw_count = len([p for p in re.split(r"[,;\s]+", raw_input.strip()) if p])
+    if raw_count > len(ids):
+        log(_t("info_dups", n=raw_count - len(ids)), "info")
+
+    if len(ids) == 1:
+        name = entry_name.get().strip() or ids[0]
+        _dry_run_one(ids[0], name, modes, is_batch=False)
+    else:
+        for lcsc_id in ids:
+            _dry_run_one(lcsc_id, lcsc_id, modes, is_batch=True)
+
+    log(f"{sep}\n", "info")
+    log(f"{_t('dryrun_footer')}\n", "info")
+    log(f"{sep}\n", "info")
 
 
 def run_import():
@@ -1003,12 +1236,17 @@ def run_import():
         log(_t("err_no_id"), "error")
         return
 
+    if not _get_modes():
+        log(_t("err_no_modes"), "error")
+        return
+
     # Duplicate info
     raw_count = len([p for p in re.split(r"[,;\s]+", raw_input.strip()) if p])
     if raw_count > len(ids):
         log(_t("info_dups", n=raw_count - len(ids)), "info")
 
     btn_run.config(state=tk.DISABLED)
+    btn_dry_run.config(state=tk.DISABLED)
 
     if len(ids) == 1:
         name = entry_name.get().strip() or ids[0]
@@ -1074,7 +1312,7 @@ def _show_batch_confirm(loading_dlg: tk.Toplevel, ids: list, id_name: dict):
     for lcsc_id in ids:
         mpn = id_name[lcsc_id]
         suffix = _t("warn_no_name") if mpn == lcsc_id else ""
-        listbox.insert(tk.END, f"  {lcsc_id:<12}  \u2192  {mpn}{suffix}")
+        listbox.insert(tk.END, f"  {lcsc_id:<12}  →  {mpn}{suffix}")
 
     ttk.Label(dlg, text=_t("dlg_confirm_q"), padding=(12, 6, 12, 2)).pack(anchor="w")
 
@@ -1102,14 +1340,19 @@ def _show_batch_confirm(loading_dlg: tk.Toplevel, ids: list, id_name: dict):
             target=_batch_worker, args=(ids, id_name), daemon=True
         ).start()
     else:
-        root.after(0, lambda: btn_run.config(state=tk.NORMAL))
+        root.after(0, lambda: _re_enable_buttons())
+
+
+def _re_enable_buttons():
+    btn_run.config(state=tk.NORMAL)
+    btn_dry_run.config(state=tk.NORMAL)
 
 
 def _batch_worker(ids: list, id_name: dict):
     """Run imports sequentially. Called from a background thread."""
     for lcsc_id in ids:
         _run_one(lcsc_id, id_name[lcsc_id])
-    root.after(0, lambda: btn_run.config(state=tk.NORMAL))
+    root.after(0, _re_enable_buttons)
 
 
 def log(msg, tag="normal"):
@@ -1128,7 +1371,10 @@ def clear_log():
 # ── Main window ───────────────────────────────────────────────────────────────
 root = tk.Tk()
 root.title(_t("window_title"))
-root.resizable(False, False)
+root.resizable(True, True)
+root.minsize(560, 420)
+root.columnconfigure(0, weight=1)
+root.rowconfigure(2, weight=1)  # log area grows when window is resized
 
 _name_edited   = tk.BooleanVar(value=False)
 var_tooltips   = tk.BooleanVar(value=True)
@@ -1141,7 +1387,7 @@ pad = {"padx": 8, "pady": 3}
 frame_topbar = ttk.Frame(root)
 frame_topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 0))
 frame_topbar.columnconfigure(0, weight=1)
-btn_lang = ttk.Button(frame_topbar, text="EN", width=4, command=_toggle_lang)
+btn_lang = ttk.Button(frame_topbar, text="🇬🇧", width=4, command=_toggle_lang)
 btn_lang.grid(row=0, column=1, sticky="e")
 _tip(btn_lang, "tip_lang")
 
@@ -1251,22 +1497,23 @@ entry_merge_3d.bind("<FocusOut>", lambda _: _save_config())
 # Initially show new-library frame; load config and apply
 frame_newlib.pack(fill=tk.X)
 
-# ── Row 5: Import mode ───────────────────────────────────────────────────────
+# ── Row 5: Import type checkboxes ─────────────────────────────────────────────
 _reg(ttk.Label(frame_top, text=_t("lbl_import")), "lbl_import").grid(
     row=5, column=0, sticky="w", **pad)
 frame_mode = ttk.Frame(frame_top)
 frame_mode.grid(row=5, column=1, columnspan=2, sticky="w", **pad)
-var_mode = tk.StringVar(value="full")
-for val, lbl_key, tip_key in [
-    ("full",       "rb_full",      "tip_rb_full"),
-    ("symbol",     "rb_symbol",    "tip_rb_symbol"),
-    ("footprint",  "rb_footprint", "tip_rb_footprint"),
-    ("3d",         "rb_3d",        "tip_rb_3d"),
+var_mode_sym = tk.BooleanVar(value=True)
+var_mode_fp  = tk.BooleanVar(value=True)
+var_mode_3d  = tk.BooleanVar(value=True)
+for var, lbl_key, tip_key in [
+    (var_mode_sym, "rb_symbol",    "tip_rb_symbol"),
+    (var_mode_fp,  "rb_footprint", "tip_rb_footprint"),
+    (var_mode_3d,  "rb_3d",        "tip_rb_3d"),
 ]:
-    rb = ttk.Radiobutton(frame_mode, text=_t(lbl_key), variable=var_mode, value=val)
-    rb.pack(side=tk.LEFT, padx=4)
-    _reg(rb, lbl_key)
-    _tip(rb, tip_key)
+    cb = ttk.Checkbutton(frame_mode, text=_t(lbl_key), variable=var)
+    cb.pack(side=tk.LEFT, padx=4)
+    _reg(cb, lbl_key)
+    _tip(cb, tip_key)
 
 # ── Row 6: Checkboxes ────────────────────────────────────────────────────────
 frame_opts = ttk.Frame(frame_top)
@@ -1277,13 +1524,14 @@ var_projrel   = tk.BooleanVar()
 var_debug     = tk.BooleanVar()
 var_verbose   = tk.BooleanVar()
 
-for lbl_key, var, tip_key in [
-    ("cb_overwrite", var_overwrite, "tip_cb_overwrite"),
-    ("cb_cache",     var_cache,     "tip_cb_cache"),
-    ("cb_projrel",   var_projrel,   "tip_cb_projrel"),
-    ("cb_debug",     var_debug,     "tip_cb_debug"),
+for lbl_key, var, tip_key, cmd in [
+    ("cb_overwrite", var_overwrite, "tip_cb_overwrite", None),
+    ("cb_cache",     var_cache,     "tip_cb_cache",     None),
+    ("cb_projrel",   var_projrel,   "tip_cb_projrel",   _on_projrel_change),
+    ("cb_debug",     var_debug,     "tip_cb_debug",     None),
 ]:
-    cb = ttk.Checkbutton(frame_opts, text=_t(lbl_key), variable=var)
+    cb = ttk.Checkbutton(frame_opts, text=_t(lbl_key), variable=var,
+                         **({"command": cmd} if cmd else {}))
     cb.pack(side=tk.LEFT, padx=4)
     _reg(cb, lbl_key)
     _tip(cb, tip_key)
@@ -1298,13 +1546,17 @@ cb_tt = ttk.Checkbutton(frame_opts, text=_t("cb_tooltips"), variable=var_tooltip
 cb_tt.pack(side=tk.LEFT, padx=4)
 _reg(cb_tt, "cb_tooltips")
 
-# ── Row 7: 3D variable ───────────────────────────────────────────────────────
+# ── Row 7: 3D variable (Combobox with KiCad path var suggestions) ─────────────
 _reg(ttk.Label(frame_top, text=_t("lbl_3dvar")), "lbl_3dvar").grid(
     row=7, column=0, sticky="w", **pad)
-entry_3dvar = ttk.Entry(frame_top, width=36)
+entry_3dvar = ttk.Combobox(frame_top, width=36)
 entry_3dvar.grid(row=7, column=1, sticky="w", **pad)
-entry_3dvar.insert(0, DEFAULT_3D_VAR)
+entry_3dvar.set(DEFAULT_3D_VAR)
 _tip(entry_3dvar, "tip_3dvar")
+btn_kicad_vars = ttk.Button(frame_top, text=_t("btn_kicad_vars"), command=_reload_kicad_vars)
+btn_kicad_vars.grid(row=7, column=2, **pad)
+_reg(btn_kicad_vars, "btn_kicad_vars")
+_tip(btn_kicad_vars, "tip_kicad_vars")
 
 # ── Row 8: Custom fields ─────────────────────────────────────────────────────
 _reg(ttk.Label(frame_top, text=_t("lbl_custom")), "lbl_custom").grid(
@@ -1322,6 +1574,10 @@ frame_btn.grid(row=10, column=0, columnspan=3, pady=(8, 0))
 btn_run = ttk.Button(frame_btn, text=_t("btn_run"), command=run_import)
 btn_run.pack(side=tk.LEFT, padx=4)
 _reg(btn_run, "btn_run")
+btn_dry_run = ttk.Button(frame_btn, text=_t("btn_dryrun"), command=dry_run)
+btn_dry_run.pack(side=tk.LEFT, padx=4)
+_reg(btn_dry_run, "btn_dryrun")
+_tip(btn_dry_run, "tip_dryrun")
 btn_clear_log = ttk.Button(frame_btn, text=_t("btn_clear"), command=clear_log)
 btn_clear_log.pack(side=tk.LEFT, padx=4)
 _reg(btn_clear_log, "btn_clear")
@@ -1356,6 +1612,18 @@ if _cfg.get("merge_mode"):
     var_merge_mode.set(True)
     frame_newlib.pack_forget()
     frame_merge.pack(fill=tk.X)
+
+# ── Populate 3D variable Combobox with KiCad path variables ──────────────────
+_kicad_vars, _kicad_config_path = _load_kicad_vars()
+_3d_suggestions = [f"${{{k}}}" for k in _kicad_vars]
+if DEFAULT_3D_VAR not in _3d_suggestions:
+    _3d_suggestions.insert(0, DEFAULT_3D_VAR)
+entry_3dvar["values"] = _3d_suggestions
+if _kicad_vars:
+    _kicad_version = Path(_kicad_config_path).parent.name
+    log(_t("log_kicad_vars_found", version=_kicad_version), "info")
+    for _k, _v in _kicad_vars.items():
+        log(f"  ${{{_k}}} = {_v}\n", "ok")
 
 root.protocol("WM_DELETE_WINDOW", lambda: (_save_config(), root.destroy()))
 
