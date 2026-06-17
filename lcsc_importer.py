@@ -264,6 +264,14 @@ _STRINGS: dict = {
         "no_fp_dir":       "Footprints-Ordner nicht angegeben.",
         "no_3d_dir":       "3D-Ordner nicht angegeben.",
         "tip_lang":        "Switch to English",
+        "btn_preview":     "Vorschau",
+        "tip_preview": (
+            "Symbol und Footprint als SVG im Browser anzeigen.\n"
+            "Kein Import — nur zur Ansicht vor dem eigentlichen Import."
+        ),
+        "preview_loading":   "Lade Vorschau für {lcsc_id}…\n",
+        "preview_not_found": "Vorschau: Komponente nicht gefunden.\n",
+        "preview_error":     "Vorschau-Fehler: {error}\n",
         "btn_about":       "ℹ",
         "tip_about":       "Über dieses Programm",
         "dlg_about_title": "Über LCSC → KiCad Importer",
@@ -456,6 +464,14 @@ _STRINGS: dict = {
         "no_fp_dir":       "Footprints folder not specified.",
         "no_3d_dir":       "3D folder not specified.",
         "tip_lang":        "Auf Deutsch wechseln",
+        "btn_preview":     "Preview",
+        "tip_preview": (
+            "Show symbol and footprint as SVG in the browser.\n"
+            "No import — just for inspection before the actual import."
+        ),
+        "preview_loading":   "Loading preview for {lcsc_id}…\n",
+        "preview_not_found": "Preview: component not found.\n",
+        "preview_error":     "Preview error: {error}\n",
         "btn_about":       "ℹ",
         "tip_about":       "About this program",
         "dlg_about_title": "About LCSC → KiCad Importer",
@@ -1024,13 +1040,13 @@ def _on_lcsc_keyrelease(*_):
     global _mpn_timer
     ids = _parse_ids(entry_lcsc.get())
     if len(ids) == 1:
+        btn_preview.config(state=tk.NORMAL)
         if not _name_edited.get():
-            # Debounce: fetch MPN 700ms after user stops typing
             if _mpn_timer:
                 root.after_cancel(_mpn_timer)
             _mpn_timer = root.after(700, lambda: _trigger_mpn_fetch(ids[0]))
     else:
-        # Multiple IDs – name field not applicable
+        btn_preview.config(state=tk.DISABLED)
         entry_name.config(state=tk.DISABLED)
         _var_desc.set("")
 
@@ -1062,6 +1078,7 @@ def _apply_mpn(lcsc_id: str, name: str, desc: str = ""):
         entry_name.insert(0, name)
         short = (desc[:67] + "…") if len(desc) > 70 else desc
         _var_desc.set(short)
+        btn_preview.config(state=tk.NORMAL)
 
 
 def _on_name_keypress(*_):
@@ -1420,6 +1437,69 @@ def _batch_worker(ids: list, id_name: dict):
     root.after(0, _re_enable_buttons)
 
 
+def _show_preview():
+    """Fetch SVGs for the current single LCSC ID and open in the browser."""
+    ids = _parse_ids(entry_lcsc.get())
+    if len(ids) != 1:
+        return
+    lcsc_id = ids[0]
+    name = entry_name.get().strip() or lcsc_id
+
+    btn_preview.config(state=tk.DISABLED)
+    log(_t("preview_loading", lcsc_id=lcsc_id), "info")
+
+    def worker():
+        try:
+            from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
+            from easyeda2kicad.easyeda.easyeda_svg_renderer import (
+                render_symbol_svg, render_footprint_svg,
+            )
+            api = EasyedaApi(use_cache=var_cache.get())
+            cad_data = api.get_cad_data_of_component(lcsc_id=lcsc_id)
+            if not cad_data:
+                root.after(0, lambda: log(_t("preview_not_found"), "error"))
+                return
+
+            sym_svg = render_symbol_svg(cad_data)
+            fp_svg  = render_footprint_svg(cad_data)
+
+            html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Preview: {lcsc_id} — {name}</title>
+  <style>
+    body {{ font-family: sans-serif; background: #f4f4f4; margin: 0; padding: 20px; }}
+    h1   {{ font-size: 1.1em; color: #333; margin-bottom: 16px; }}
+    .row {{ display: flex; gap: 20px; flex-wrap: wrap; }}
+    .panel {{ background: white; border-radius: 8px; padding: 16px;
+              box-shadow: 0 2px 6px rgba(0,0,0,.12); }}
+    .panel h2 {{ margin: 0 0 12px; font-size: .95em; color: #555; }}
+    svg  {{ display: block; max-width: 100%; height: auto; }}
+  </style>
+</head>
+<body>
+  <h1>Preview: {lcsc_id} &mdash; {name}</h1>
+  <div class="row">
+    <div class="panel"><h2>Symbol</h2>{sym_svg}</div>
+    <div class="panel"><h2>Footprint</h2>{fp_svg}</div>
+  </div>
+</body>
+</html>"""
+
+            tmpdir = tempfile.mkdtemp(prefix="lcsc_preview_")
+            html_path = Path(tmpdir) / f"{lcsc_id}_preview.html"
+            html_path.write_text(html, encoding="utf-8")
+            webbrowser.open(html_path.as_uri())
+
+        except Exception as exc:
+            root.after(0, lambda e=exc: log(_t("preview_error", error=e), "error"))
+        finally:
+            root.after(0, lambda: btn_preview.config(state=tk.NORMAL))
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
 def _show_about():
     dlg = tk.Toplevel(root)
     dlg.title(_t("dlg_about_title"))
@@ -1673,6 +1753,11 @@ btn_dry_run = ttk.Button(frame_btn, text=_t("btn_dryrun"), command=dry_run)
 btn_dry_run.pack(side=tk.LEFT, padx=4)
 _reg(btn_dry_run, "btn_dryrun")
 _tip(btn_dry_run, "tip_dryrun")
+btn_preview = ttk.Button(frame_btn, text=_t("btn_preview"), command=_show_preview,
+                          state=tk.DISABLED)
+btn_preview.pack(side=tk.LEFT, padx=4)
+_reg(btn_preview, "btn_preview")
+_tip(btn_preview, "tip_preview")
 btn_clear_log = ttk.Button(frame_btn, text=_t("btn_clear"), command=clear_log)
 btn_clear_log.pack(side=tk.LEFT, padx=4)
 _reg(btn_clear_log, "btn_clear")
