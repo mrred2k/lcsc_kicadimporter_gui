@@ -1,21 +1,22 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext
-import subprocess
 import threading
-import sys
+import logging
+import locale
 import re
 import json
 import os
 import glob
 import shutil
 import tempfile
+import webbrowser
 from pathlib import Path
+
+APP_VERSION = "0.3.0"
+APP_URL     = "https://github.com/mrred2k/lcsc_kicadimporter_gui"
 
 DEFAULT_OUTPUT_DIR = ""
 DEFAULT_3D_VAR = "${KICAD_USER_3DMODEL_DIR}"
-
-# Lines from easyeda2kicad output that are shown in compact mode
-_INFO_RE = re.compile(r"\[INFO\]|\[WARNING\]|\[ERROR\]|-- easyeda2kicad")
 
 
 # ── Tooltip ───────────────────────────────────────────────────────────────────
@@ -69,7 +70,11 @@ class ToolTip:
 
 
 # ── Language / i18n ──────────────────────────────────────────────────────────
-_LANG = "de"
+try:
+    _sys_locale = locale.getlocale()[0] or ""
+except Exception:
+    _sys_locale = ""
+_LANG = "de" if _sys_locale.startswith("de") else "en"
 _lang_widgets: list = []   # (widget, config_key, string_key)
 _lang_tips:    list = []   # (ToolTip instance, string_key)
 
@@ -259,6 +264,12 @@ _STRINGS: dict = {
         "no_fp_dir":       "Footprints-Ordner nicht angegeben.",
         "no_3d_dir":       "3D-Ordner nicht angegeben.",
         "tip_lang":        "Switch to English",
+        "btn_about":       "ℹ",
+        "tip_about":       "Über dieses Programm",
+        "dlg_about_title": "Über LCSC → KiCad Importer",
+        "about_desc":      "GUI-Wrapper für easyeda2kicad.\nImportiert LCSC-Komponenten in KiCad-Libraries.",
+        "about_source":    "Quelle:",
+        "about_license":   "Lizenz: MIT",
     },
     "en": {
         "window_title":   "LCSC → KiCad Importer",
@@ -445,6 +456,12 @@ _STRINGS: dict = {
         "no_fp_dir":       "Footprints folder not specified.",
         "no_3d_dir":       "3D folder not specified.",
         "tip_lang":        "Auf Deutsch wechseln",
+        "btn_about":       "ℹ",
+        "tip_about":       "About this program",
+        "dlg_about_title": "About LCSC → KiCad Importer",
+        "about_desc":      "GUI wrapper for easyeda2kicad.\nImports LCSC components into KiCad libraries.",
+        "about_source":    "Source:",
+        "about_license":   "License: MIT",
     },
 }
 
@@ -1061,53 +1078,101 @@ def _get_modes() -> set:
     return modes
 
 
-def _build_cmd(lcsc_id: str, output_base: str) -> list:
-    # Always fetch everything; _get_modes() controls what gets distributed
-    cmd = [sys.executable, "-m", "easyeda2kicad", "--full"]
-    cmd += ["--lcsc_id", lcsc_id, "--output", output_base]
-    if var_overwrite.get(): cmd.append("--overwrite")
-    if var_cache.get():     cmd.append("--use-cache")
-    if var_projrel.get():   cmd.append("--project-relative")
-    if var_debug.get():     cmd.append("--debug")
-    custom = entry_custom.get().strip()
-    if custom:
-        cmd += ["--custom-field"] + custom.split()
-    return cmd
-
-
 def _run_one(lcsc_id: str, name: str):
-    """Run import for a single ID and post-process. Called from worker thread."""
+    """Import a single component via the easyeda2kicad library API."""
+    from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
+    from easyeda2kicad.easyeda.easyeda_importer import (
+        EasyedaSymbolImporter, EasyedaFootprintImporter, Easyeda3dModelImporter,
+    )
+    from easyeda2kicad.kicad.export_kicad_symbol import ExporterSymbolKicad
+    from easyeda2kicad.kicad.export_kicad_footprint import ExporterFootprintKicad
+    from easyeda2kicad.kicad.export_kicad_3d_model import Exporter3dModelKicad
+
     tmpdir = tempfile.mkdtemp(prefix="lcsc_import_")
     output_base = str(Path(tmpdir) / name)
+    modes = _get_modes()
 
-    # Fetch description upfront so it appears in the header log line
     desc = _fetch_description(lcsc_id)
     desc_str = f"  –  {desc}" if desc else ""
     root.after(0, lambda: log(f"► {lcsc_id}  →  {name}{desc_str}\n", "info"))
 
-    cmd = _build_cmd(lcsc_id, output_base)
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
-        raw = result.stdout + result.stderr
-        if var_verbose.get():
-            display = raw
-        else:
-            lines = [l for l in raw.splitlines() if _INFO_RE.search(l)]
-            display = "\n".join(lines) + "\n" if lines else raw
-        tag = "ok" if result.returncode == 0 else "error"
-        root.after(0, lambda d=display, t=tag: log(d if d.strip() else _t("no_output"), t))
+    class _GUIHandler(logging.Handler):
+        def emit(self, record):
+            if not var_verbose.get() and record.levelno < logging.INFO:
+                return
+            msg = self.format(record)
+            tag = "error" if record.levelno >= logging.WARNING else "ok"
+            root.after(0, lambda m=msg + "\n", t=tag: log(m, t))
 
-        modes = _get_modes()
-        if result.returncode == 0:
-            if desc:
-                _patch_description(output_base, desc)
-            post_msgs = (merge_into_libs if var_merge_mode.get() else distribute_new_lib)(
-                output_base, modes)
-            for msg, t in post_msgs:
-                root.after(0, lambda m=msg, t=t: log(m, t))
-    except FileNotFoundError:
-        root.after(0, lambda: log(_t("err_not_found"), "error"))
+    e2k_log = logging.getLogger("easyeda2kicad")
+    handler = _GUIHandler()
+    handler.setFormatter(logging.Formatter("  %(levelname)s %(message)s"))
+    saved_level = e2k_log.level
+    e2k_log.addHandler(handler)
+    e2k_log.setLevel(logging.DEBUG if var_debug.get() else logging.INFO)
+
+    try:
+        custom_fields = {}
+        for pair in entry_custom.get().strip().split():
+            if ":" in pair:
+                k, v = pair.split(":", 1)
+                custom_fields[k] = v
+
+        api = EasyedaApi(use_cache=var_cache.get())
+        cad_data = api.get_cad_data_of_component(lcsc_id=lcsc_id)
+        if not cad_data:
+            root.after(0, lambda: log("  ERROR: component not found in EasyEDA.\n", "error"))
+            return
+
+        # ── Symbol ────────────────────────────────────────────────────────────
+        if "symbol" in modes:
+            sym = EasyedaSymbolImporter(easyeda_cp_cad_data=cad_data).get_symbol()
+            ExporterSymbolKicad(
+                symbol=sym,
+                lib_path=f"{output_base}.kicad_sym",
+                custom_fields=custom_fields or None,
+            ).save_to_lib(
+                lib_path=f"{output_base}.kicad_sym",
+                footprint_lib_name=name,
+                overwrite=True,
+            )
+
+        # ── Footprint ─────────────────────────────────────────────────────────
+        if "footprint" in modes:
+            fp = EasyedaFootprintImporter(easyeda_cp_cad_data=cad_data).get_footprint()
+            fp_dir = Path(f"{output_base}.pretty")
+            fp_dir.mkdir(parents=True, exist_ok=True)
+            ExporterFootprintKicad(footprint=fp).export(
+                footprint_full_path=str(fp_dir / f"{fp.info.name}.kicad_mod"),
+                model_3d_path=Path(f"{output_base}.3dshapes").as_posix(),
+            )
+
+        # ── 3D model ──────────────────────────────────────────────────────────
+        if "3d" in modes:
+            model_3d = Easyeda3dModelImporter(
+                easyeda_cp_cad_data=cad_data,
+                download_raw_3d_model=True,
+                api=api,
+            ).output
+            exp_3d = Exporter3dModelKicad(model_3d=model_3d)
+            if exp_3d.output:
+                exp_3d.export(output_dir=f"{output_base}.3dshapes", overwrite=True)
+            else:
+                root.after(0, lambda: log("  INFO: no 3D model available.\n", "ok"))
+
+        # ── Post-process & distribute ─────────────────────────────────────────
+        if desc:
+            _patch_description(output_base, desc)
+        post_msgs = (merge_into_libs if var_merge_mode.get() else distribute_new_lib)(
+            output_base, modes)
+        for msg, t in post_msgs:
+            root.after(0, lambda m=msg, t=t: log(m, t))
+
+    except Exception as exc:
+        root.after(0, lambda e=exc: log(f"  ERROR: {e}\n", "error"))
     finally:
+        e2k_log.removeHandler(handler)
+        e2k_log.setLevel(saved_level)
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
@@ -1355,6 +1420,33 @@ def _batch_worker(ids: list, id_name: dict):
     root.after(0, _re_enable_buttons)
 
 
+def _show_about():
+    dlg = tk.Toplevel(root)
+    dlg.title(_t("dlg_about_title"))
+    dlg.resizable(False, False)
+    dlg.grab_set()
+    ttk.Label(dlg, text="LCSC → KiCad Importer",
+              font=("TkDefaultFont", 12, "bold"), padding=(16, 12, 16, 4)).pack()
+    ttk.Label(dlg, text=f"v{APP_VERSION}", foreground="gray",
+              padding=(16, 0, 16, 8)).pack()
+    ttk.Label(dlg, text=_t("about_desc"), justify=tk.CENTER,
+              padding=(16, 0, 16, 8)).pack()
+    ttk.Separator(dlg, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=16, pady=4)
+    frame_src = ttk.Frame(dlg)
+    frame_src.pack(padx=16, pady=(0, 4))
+    ttk.Label(frame_src, text=_t("about_source")).pack(side=tk.LEFT, padx=(0, 6))
+    lbl_url = ttk.Label(frame_src, text=APP_URL, foreground="#0066cc", cursor="hand2")
+    lbl_url.pack(side=tk.LEFT)
+    lbl_url.bind("<Button-1>", lambda _: webbrowser.open(APP_URL))
+    ttk.Label(dlg, text=_t("about_license"), foreground="gray",
+              padding=(16, 0, 16, 12)).pack()
+    ttk.Button(dlg, text="OK", command=dlg.destroy, width=8).pack(pady=(0, 12))
+    dlg.update_idletasks()
+    x = root.winfo_x() + (root.winfo_width()  - dlg.winfo_reqwidth())  // 2
+    y = root.winfo_y() + (root.winfo_height() - dlg.winfo_reqheight()) // 2
+    dlg.geometry(f"+{x}+{y}")
+
+
 def log(msg, tag="normal"):
     text_log.config(state=tk.NORMAL)
     text_log.insert(tk.END, msg, tag)
@@ -1387,8 +1479,11 @@ pad = {"padx": 8, "pady": 3}
 frame_topbar = ttk.Frame(root)
 frame_topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 0))
 frame_topbar.columnconfigure(0, weight=1)
-btn_lang = ttk.Button(frame_topbar, text="🇬🇧", width=4, command=_toggle_lang)
-btn_lang.grid(row=0, column=1, sticky="e")
+btn_about = ttk.Button(frame_topbar, text="ℹ", width=3, command=_show_about)
+btn_about.grid(row=0, column=1, sticky="e", padx=(0, 4))
+_tip(btn_about, "tip_about")
+btn_lang = ttk.Button(frame_topbar, text="🇬🇧" if _LANG == "de" else "🇩🇪", width=4, command=_toggle_lang)
+btn_lang.grid(row=0, column=2, sticky="e")
 _tip(btn_lang, "tip_lang")
 
 # ── Controls frame ────────────────────────────────────────────────────────────

@@ -1,0 +1,40 @@
+name: Build Windows EXE
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install easyeda2kicad pyinstaller
+
+      - name: Build executable
+        shell: bash
+        run: |
+          pyinstaller --onefile --windowed --name lcsc_importer \
+            --collect-all easyeda2kicad \
+            lcsc_importer.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcsc_importer-windows
+          path: dist/lcsc_importer.exe
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/lcsc_importer.exe
+          generate_release_notes: true
