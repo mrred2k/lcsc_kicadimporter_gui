@@ -503,7 +503,7 @@ def _toggle_lang():
     global _LANG
     _LANG = "en" if _LANG == "de" else "de"
     # Show the flag of the language you'd switch TO next
-    btn_lang.config(text="🇩🇪" if _LANG == "en" else "🇬🇧")
+    btn_lang.config(image=_flag_de if _LANG == "en" else _flag_uk)
     _apply_lang()
 
 
@@ -947,6 +947,8 @@ def distribute_new_lib(output_base: str, import_modes: set) -> list:
 _mpn_timer = None
 _last_fetched_id = None
 _prev_3dvar = ""  # saved when switching into project-relative mode
+_inline_sym_svg: str = ""
+_inline_fp_svg: str = ""
 
 
 def _on_projrel_change():
@@ -1049,6 +1051,8 @@ def _on_lcsc_keyrelease(*_):
         btn_preview.config(state=tk.DISABLED)
         entry_name.config(state=tk.DISABLED)
         _var_desc.set("")
+        canvas_sym_thumb.delete("all")  # type: ignore[name-defined]
+        canvas_fp_thumb.delete("all")   # type: ignore[name-defined]
 
 
 def _trigger_mpn_fetch(lcsc_id: str):
@@ -1079,6 +1083,7 @@ def _apply_mpn(lcsc_id: str, name: str, desc: str = ""):
         short = (desc[:67] + "…") if len(desc) > 70 else desc
         _var_desc.set(short)
         btn_preview.config(state=tk.NORMAL)
+        _update_inline_preview(lcsc_id)
 
 
 def _on_name_keypress(*_):
@@ -1437,8 +1442,320 @@ def _batch_worker(ids: list, id_name: dict):
     root.after(0, _re_enable_buttons)
 
 
+def _svg_on_canvas(canvas: tk.Canvas, svg_text: str, canvas_w: int = 380, canvas_h: int = 380):
+    """Render an easyeda2kicad SVG onto a Canvas (no extra dependencies)."""
+    import xml.etree.ElementTree as ET
+    import math
+
+    root_el = ET.fromstring(svg_text)
+    vb = root_el.get("viewBox", "")
+    if vb:
+        vb_parts = re.split(r"[,\s]+", vb.strip())
+        vb_x, vb_y, vb_w, vb_h = float(vb_parts[0]), float(vb_parts[1]), float(vb_parts[2]), float(vb_parts[3])
+    else:
+        vb_x, vb_y = 0.0, 0.0
+        vb_w = float(root_el.get("width",  400))
+        vb_h = float(root_el.get("height", 300))
+
+    if vb_w <= 0 or vb_h <= 0:
+        return
+    margin = 12
+    scale = min((canvas_w - 2 * margin) / vb_w, (canvas_h - 2 * margin) / vb_h)
+    ox = margin - vb_x * scale
+    oy = margin - vb_y * scale
+
+    def px(x): return ox + float(x) * scale
+    def py(y): return oy + float(y) * scale
+    def sw(v):
+        try: return max(1.0, float(v) * scale)
+        except (TypeError, ValueError): return 1.0
+
+    def col(s, default=""):
+        if not s or s == "none":
+            return default
+        if s.startswith("#") and len(s) == 9:   # #RRGGBBAA → strip alpha
+            s = s[:7]
+        return s
+
+    # SVG text y = baseline (text body above it).
+    # tkinter "sw/s/se" = bottom of bbox at y → text sits above y, approximating SVG baseline.
+    _ANCHOR = {"start": "sw", "middle": "s", "end": "se"}
+
+    def _parse_rotate(t):
+        """Parse rotate(angle, cx, cy) → (angle_deg, cx, cy) or None."""
+        m = re.search(r"rotate\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)", t)
+        if m:
+            return float(m.group(1)), float(m.group(2)), float(m.group(3))
+        return None
+
+    def _rot_pts(pts, angle_deg, cx, cy):
+        a = math.radians(angle_deg)
+        ca, sa = math.cos(a), math.sin(a)
+        return [(cx + (x - cx) * ca - (y - cy) * sa,
+                 cy + (x - cx) * sa + (y - cy) * ca) for x, y in pts]
+
+    def render_path(d, stroke, fill, width):
+        """Tokenising path parser with fill support for closed subpaths."""
+        tokens = re.findall(r"[MmLlHhVvZzCcQqAa]|[-+]?\d*\.?\d+(?:[eE][+-]?\d+)?", d)
+        idx = 0
+        cx_pos = cy_pos = sx = sy = 0.0
+        cmd = "M"
+        sub_pts: list[tuple[float, float]] = []
+
+        def nf():
+            nonlocal idx
+            v = float(tokens[idx]); idx += 1; return v
+
+        def seg(x1, y1, x2, y2):
+            if stroke:
+                canvas.create_line(px(x1), py(y1), px(x2), py(y2), fill=stroke, width=width,
+                                   capstyle=tk.ROUND)
+            sub_pts.append((x2, y2))
+
+        while idx < len(tokens):
+            t = tokens[idx]
+            if t.isalpha():
+                cmd = t; idx += 1; continue
+            try:
+                if cmd == "M":
+                    cx_pos, cy_pos = nf(), nf(); sx, sy = cx_pos, cy_pos
+                    sub_pts[:] = [(cx_pos, cy_pos)]; cmd = "L"
+                elif cmd == "m":
+                    cx_pos += nf(); cy_pos += nf(); sx, sy = cx_pos, cy_pos
+                    sub_pts[:] = [(cx_pos, cy_pos)]; cmd = "l"
+                elif cmd == "L":
+                    nx, ny = nf(), nf(); seg(cx_pos, cy_pos, nx, ny); cx_pos, cy_pos = nx, ny
+                elif cmd == "l":
+                    dx, dy = nf(), nf(); seg(cx_pos, cy_pos, cx_pos+dx, cy_pos+dy); cx_pos += dx; cy_pos += dy
+                elif cmd == "H":
+                    nx = nf(); seg(cx_pos, cy_pos, nx, cy_pos); cx_pos = nx
+                elif cmd == "h":
+                    dx = nf(); seg(cx_pos, cy_pos, cx_pos+dx, cy_pos); cx_pos += dx
+                elif cmd == "V":
+                    ny = nf(); seg(cx_pos, cy_pos, cx_pos, ny); cy_pos = ny
+                elif cmd == "v":
+                    dy = nf(); seg(cx_pos, cy_pos, cx_pos, cy_pos+dy); cy_pos += dy
+                elif cmd in ("Z", "z"):
+                    seg(cx_pos, cy_pos, sx, sy); cx_pos, cy_pos = sx, sy
+                    if fill and len(sub_pts) >= 3:
+                        flat = [c for p in sub_pts for c in (px(p[0]), py(p[1]))]
+                        canvas.create_polygon(*flat, fill=fill, outline="", smooth=False)
+                    sub_pts[:] = [(sx, sy)]
+                elif cmd == "C":
+                    nf(); nf(); nf(); nf(); ex, ey = nf(), nf()
+                    seg(cx_pos, cy_pos, ex, ey); cx_pos, cy_pos = ex, ey
+                elif cmd == "c":
+                    nf(); nf(); nf(); nf(); dx, dy = nf(), nf()
+                    seg(cx_pos, cy_pos, cx_pos+dx, cy_pos+dy); cx_pos += dx; cy_pos += dy
+                elif cmd == "A":
+                    nf(); nf(); nf(); nf(); nf(); ex, ey = nf(), nf()
+                    seg(cx_pos, cy_pos, ex, ey); cx_pos, cy_pos = ex, ey
+                elif cmd == "a":
+                    nf(); nf(); nf(); nf(); nf(); dx, dy = nf(), nf()
+                    seg(cx_pos, cy_pos, cx_pos+dx, cy_pos+dy); cx_pos += dx; cy_pos += dy
+                elif cmd in ("Q", "q"):
+                    nf(); nf()
+                    if cmd == "Q":
+                        ex, ey = nf(), nf(); seg(cx_pos, cy_pos, ex, ey); cx_pos, cy_pos = ex, ey
+                    else:
+                        dx, dy = nf(), nf(); seg(cx_pos, cy_pos, cx_pos+dx, cy_pos+dy); cx_pos += dx; cy_pos += dy
+                else:
+                    idx += 1
+            except (IndexError, ValueError):
+                break
+
+    def render_el(el):
+        tag = el.tag.split("}")[-1]
+        if tag in ("title", "defs"):
+            return
+
+        fill   = col(el.get("fill"))
+        stroke = col(el.get("stroke"))   # "" when not explicitly set → no outline
+        sw_raw = el.get("stroke-width")
+        width  = sw(sw_raw) if sw_raw else max(1.0, scale * 0.5)
+
+        tf = el.get("transform", "")
+        rot = _parse_rotate(tf) if tf else None
+
+        if tag == "rect":
+            x, y = float(el.get("x", 0)), float(el.get("y", 0))
+            w, h = float(el.get("width", 0)), float(el.get("height", 0))
+            if rot:
+                corners = _rot_pts([(x, y), (x+w, y), (x+w, y+h), (x, y+h)], *rot)
+                flat = [c for p in corners for c in (px(p[0]), py(p[1]))]
+                canvas.create_polygon(*flat, fill=fill or "", outline=stroke,
+                                      width=width if stroke else 0)
+            else:
+                canvas.create_rectangle(px(x), py(y), px(x+w), py(y+h),
+                                        fill=fill or "", outline=stroke, width=width if stroke else 0)
+        elif tag in ("circle", "ellipse"):
+            cx, cy = float(el.get("cx", 0)), float(el.get("cy", 0))
+            r_attr = el.get("r")
+            rx = float(r_attr if r_attr else el.get("rx", 2))
+            ry = float(r_attr if r_attr else el.get("ry", rx))
+            if abs(rx - ry) < 0.01:
+                # True circle
+                canvas.create_oval(px(cx-rx), py(cy-ry), px(cx+rx), py(cy+ry),
+                                   fill=fill or "", outline=stroke, width=width if stroke else 0)
+            else:
+                # Oblong/stadium pad: single polygon tracing both semicircle caps.
+                # Avoids seam artifacts that occur when compositing 3 separate shapes.
+                r = min(rx, ry)
+                N = 16  # points per semicircle
+                pts = []
+                if rx > ry:  # horizontal
+                    for i in range(N + 1):
+                        a = -math.pi/2 + math.pi * i / N
+                        pts.append((cx + (rx - r) + r * math.cos(a), cy + r * math.sin(a)))
+                    for i in range(N + 1):
+                        a = math.pi/2 + math.pi * i / N
+                        pts.append((cx - (rx - r) + r * math.cos(a), cy + r * math.sin(a)))
+                else:  # vertical
+                    for i in range(N + 1):
+                        a = math.pi * i / N
+                        pts.append((cx + r * math.cos(a), cy + (ry - r) + r * math.sin(a)))
+                    for i in range(N + 1):
+                        a = math.pi + math.pi * i / N
+                        pts.append((cx + r * math.cos(a), cy - (ry - r) + r * math.sin(a)))
+                if rot:
+                    pts = _rot_pts(pts, rot[0], rot[1], rot[2])
+                coords = [c for p in pts for c in (px(p[0]), py(p[1]))]
+                canvas.create_polygon(*coords, fill=fill or "", outline=stroke or "",
+                                      width=width if stroke else 0, smooth=False)
+        elif tag == "line":
+            lc = stroke or "black"
+            canvas.create_line(
+                px(float(el.get("x1", 0))), py(float(el.get("y1", 0))),
+                px(float(el.get("x2", 0))), py(float(el.get("y2", 0))),
+                fill=lc, width=width, capstyle=tk.ROUND)
+        elif tag in ("polyline", "polygon"):
+            pts = [float(v) for v in re.split(r"[,\s]+", el.get("points", "").strip()) if v]
+            if len(pts) >= 4:
+                coords = [c for i in range(0, len(pts)//2*2, 2)
+                          for c in (px(pts[i]), py(pts[i+1]))]
+                if tag == "polygon":
+                    canvas.create_polygon(*coords, fill=fill or "", outline=stroke, width=width if stroke else 0)
+                else:
+                    canvas.create_line(*coords, fill=stroke or "black", width=width,
+                                       capstyle=tk.ROUND, joinstyle=tk.ROUND)
+        elif tag == "path":
+            render_path(el.get("d", ""), stroke, fill, width)
+        elif tag == "text":
+            text = (el.text or "").strip()
+            if text:
+                ta = el.get("text-anchor", "start")
+                db = el.get("dominant-baseline", "")
+                if db in ("central", "middle"):
+                    # SVG: both axes centered → use center/w/e without vertical offset
+                    anchor = {"middle": "center", "start": "w", "end": "e"}.get(ta, "center")
+                else:
+                    # SVG y = baseline → text body above y; "sw/s/se" puts bottom of bbox at y
+                    anchor = _ANCHOR.get(ta, "sw")
+                fs_svg = float(el.get("font-size") or 7)
+                fs     = max(6, min(9, int(fs_svg * scale)))
+                t_str  = el.get("transform", "")
+                angle  = 0.0
+                if t_str:
+                    rm = _parse_rotate(t_str)
+                    if rm:
+                        angle = -rm[0]   # SVG rotate(+α) CW; tkinter angle(+α) CCW
+                canvas.create_text(px(float(el.get("x", 0))), py(float(el.get("y", 0))),
+                                   text=text, fill=fill or stroke or "black",
+                                   font=("TkDefaultFont", fs), anchor=anchor, angle=angle)
+        elif tag == "g":
+            for child in el:
+                render_el(child)
+
+    def _is_white(el):
+        f = col(el.get("fill", "")).lower()
+        s = col(el.get("stroke", "")).lower()
+        return f in ("white", "#ffffff") or s in ("white", "#ffffff")
+
+    children = list(root_el)
+    # Pass 0 — background rect (always first child of <svg>)
+    if children:
+        render_el(children[0])
+    # Pass 1 — non-white filled paths (SOLIDREGION copper fills), under pads
+    for el in children[1:]:
+        if el.tag.split("}")[-1] == "path" and not _is_white(el):
+            render_el(el)
+    # Pass 2 — pads, tracks, outlines, text — skip white-fill elements
+    for el in children[1:]:
+        if el.tag.split("}")[-1] != "path" and not _is_white(el):
+            render_el(el)
+    # Pass 3 — white-fill elements last: drill holes, slot holes, HOLE, npth paths
+    for el in children[1:]:
+        if _is_white(el):
+            render_el(el)
+
+
+THUMB_W, THUMB_H = 160, 160
+
+
+def _update_inline_preview(lcsc_id: str):
+    """Fetch SVGs in background and paint the two thumbnail canvases."""
+    def worker():
+        try:
+            from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
+            from easyeda2kicad.easyeda.easyeda_svg_renderer import (
+                render_symbol_svg, render_footprint_svg,
+            )
+            api = EasyedaApi(use_cache=var_cache.get())
+            cad_data = api.get_cad_data_of_component(lcsc_id=lcsc_id)
+            if not cad_data:
+                return
+            sym = render_symbol_svg(cad_data)
+            fp  = render_footprint_svg(cad_data)
+            root.after(0, lambda s=sym, f=fp: _apply_inline_preview(lcsc_id, s, f))
+        except Exception:
+            pass
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def _apply_inline_preview(lcsc_id: str, sym_svg: str, fp_svg: str):
+    global _inline_sym_svg, _inline_fp_svg
+    if _parse_ids(entry_lcsc.get()) != [lcsc_id]:
+        return  # stale: user already changed the input
+    _inline_sym_svg = sym_svg
+    _inline_fp_svg  = fp_svg
+    canvas_sym_thumb.delete("all")  # type: ignore[name-defined]
+    canvas_fp_thumb.delete("all")   # type: ignore[name-defined]
+    _svg_on_canvas(canvas_sym_thumb, sym_svg, THUMB_W, THUMB_H)  # type: ignore[name-defined]
+    _svg_on_canvas(canvas_fp_thumb,  fp_svg,  THUMB_W, THUMB_H)  # type: ignore[name-defined]
+
+
+def _open_large_preview(which: str):
+    """Open a single enlarged preview popup; click or Escape closes it."""
+    svg = _inline_sym_svg if which == "sym" else _inline_fp_svg
+    if not svg:
+        return
+    bg    = "white" if which == "sym" else "black"
+    label = "Symbol"    if which == "sym" else "Footprint"
+
+    dlg = tk.Toplevel(root)
+    dlg.title(label)
+    dlg.resizable(False, False)
+
+    header = ttk.Frame(dlg)
+    header.pack(fill=tk.X, padx=4, pady=(4, 0))
+    ttk.Label(header, text=label).pack(side=tk.LEFT)
+    ttk.Button(header, text="✕", width=3, command=dlg.destroy).pack(side=tk.RIGHT)
+
+    c = tk.Canvas(dlg, width=380, height=380, bg=bg, highlightthickness=0,
+                  cursor="hand2")
+    c.pack(padx=4, pady=4)
+    _svg_on_canvas(c, svg, 380, 380)
+    c.bind("<Button-1>", lambda *_: dlg.destroy())
+    dlg.bind("<Escape>",  lambda *_: dlg.destroy())
+
+    dlg.update_idletasks()
+    x = root.winfo_x() + max(0, (root.winfo_width()  - dlg.winfo_reqwidth())  // 2)
+    y = root.winfo_y() + max(0, (root.winfo_height() - dlg.winfo_reqheight()) // 2)
+    dlg.geometry(f"+{x}+{y}")
+
+
 def _show_preview():
-    """Fetch SVGs for the current single LCSC ID and open in the browser."""
+    """Fetch SVGs for the current single LCSC ID and render inline."""
     ids = _parse_ids(entry_lcsc.get())
     if len(ids) != 1:
         return
@@ -1459,45 +1776,42 @@ def _show_preview():
             if not cad_data:
                 root.after(0, lambda: log(_t("preview_not_found"), "error"))
                 return
-
             sym_svg = render_symbol_svg(cad_data)
             fp_svg  = render_footprint_svg(cad_data)
-
-            html = f"""<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>Preview: {lcsc_id} — {name}</title>
-  <style>
-    body {{ font-family: sans-serif; background: #f4f4f4; margin: 0; padding: 20px; }}
-    h1   {{ font-size: 1.1em; color: #333; margin-bottom: 16px; }}
-    .row {{ display: flex; gap: 20px; flex-wrap: wrap; }}
-    .panel {{ background: white; border-radius: 8px; padding: 16px;
-              box-shadow: 0 2px 6px rgba(0,0,0,.12); }}
-    .panel h2 {{ margin: 0 0 12px; font-size: .95em; color: #555; }}
-    svg  {{ display: block; max-width: 100%; height: auto; }}
-  </style>
-</head>
-<body>
-  <h1>Preview: {lcsc_id} &mdash; {name}</h1>
-  <div class="row">
-    <div class="panel"><h2>Symbol</h2>{sym_svg}</div>
-    <div class="panel"><h2>Footprint</h2>{fp_svg}</div>
-  </div>
-</body>
-</html>"""
-
-            tmpdir = tempfile.mkdtemp(prefix="lcsc_preview_")
-            html_path = Path(tmpdir) / f"{lcsc_id}_preview.html"
-            html_path.write_text(html, encoding="utf-8")
-            webbrowser.open(html_path.as_uri())
-
+            root.after(0, lambda s=sym_svg, f=fp_svg: _open_preview_window(lcsc_id, name, s, f))
         except Exception as exc:
             root.after(0, lambda e=exc: log(_t("preview_error", error=e), "error"))
         finally:
             root.after(0, lambda: btn_preview.config(state=tk.NORMAL))
 
     threading.Thread(target=worker, daemon=True).start()
+
+
+def _open_preview_window(lcsc_id: str, name: str, sym_svg: str, fp_svg: str):
+    dlg = tk.Toplevel(root)
+    dlg.title(f"Preview: {lcsc_id} — {name}")
+    dlg.resizable(True, True)
+
+    CANVAS_W, CANVAS_H = 380, 380
+
+    frame = ttk.Frame(dlg, padding=10)
+    frame.pack(fill=tk.BOTH, expand=True)
+
+    bg_colors = ["white", "black"]
+    for col_idx, (label, svg) in enumerate([("Symbol", sym_svg), ("Footprint", fp_svg)]):
+        panel = ttk.LabelFrame(frame, text=label, padding=4)
+        panel.grid(row=0, column=col_idx, padx=(0, 8 if col_idx == 0 else 0), sticky="nsew")
+        frame.columnconfigure(col_idx, weight=1)
+        frame.rowconfigure(0, weight=1)
+        c = tk.Canvas(panel, width=CANVAS_W, height=CANVAS_H, bg=bg_colors[col_idx],
+                      highlightthickness=0)
+        c.pack(fill=tk.BOTH, expand=True)
+        _svg_on_canvas(c, svg, CANVAS_W, CANVAS_H)
+
+    dlg.update_idletasks()
+    x = root.winfo_x() + max(0, (root.winfo_width()  - dlg.winfo_reqwidth())  // 2)
+    y = root.winfo_y() + max(0, (root.winfo_height() - dlg.winfo_reqheight()) // 2)
+    dlg.geometry(f"+{x}+{y}")
 
 
 def _show_about():
@@ -1541,12 +1855,88 @@ def clear_log():
 
 
 # ── Main window ───────────────────────────────────────────────────────────────
+def _make_flags() -> "tuple[tk.PhotoImage, tk.PhotoImage]":
+    """Return (flag_de, flag_uk) as 24×15 PhotoImages drawn programmatically."""
+    W, H = 24, 15
+    S = H // 3  # stripe height = 5
+
+    flag_de = tk.PhotoImage(width=W, height=H)
+    flag_de.put("#222222", to=(0,       0, W,   S))      # black
+    flag_de.put("#dd0000", to=(0,       S, W, S*2))      # red
+    flag_de.put("#ffcc00", to=(0,     S*2, W,   H))      # gold
+
+    flag_uk = tk.PhotoImage(width=W, height=H)
+    Wm, Hm = W - 1, H - 1
+    norm = (Wm ** 2 + Hm ** 2) ** 0.5
+    cx, cy = Wm / 2.0, Hm / 2.0
+    rows = []
+    for y in range(H):
+        row = []
+        for x in range(W):
+            adx = abs(x - cx)
+            ady = abs(y - cy)
+            d1 = abs(Hm * x - Wm * y) / norm               # TL→BR diagonal
+            d2 = abs(Hm * x + Wm * y - Hm * Wm) / norm    # TR→BL diagonal
+            if adx < 1.5 or ady < 1.5:
+                c = "#cc0000"   # St George cross (red)
+            elif adx < 3.0 or ady < 3.0:
+                c = "#ffffff"   # St George cross (white surround)
+            elif d1 < 0.9 or d2 < 0.9:
+                c = "#cc0000"   # St Patrick diagonal (red)
+            elif d1 < 2.0 or d2 < 2.0:
+                c = "#ffffff"   # St Andrew diagonal (white)
+            else:
+                c = "#003399"   # blue field
+            row.append(c)
+        rows.append("{" + " ".join(row) + "}")
+    flag_uk.put(" ".join(rows))
+
+    # Thin dark border on both flags so they read against any bg
+    for img in (flag_de, flag_uk):
+        img.put("#555555", to=(0, 0,   W,   1))
+        img.put("#555555", to=(0, H-1, W,   H))
+        img.put("#555555", to=(0, 0,   1,   H))
+        img.put("#555555", to=(W-1, 0, W,   H))
+
+    return flag_de, flag_uk
+
+
+def _make_app_icon() -> tk.PhotoImage:
+    """Draw a 32×32 PCB chip icon: green board, gold body, silver pins."""
+    img = tk.PhotoImage(width=32, height=32)
+    # Board (PCB green)
+    img.put("#1e6b1e", to=(0,  0,  32, 32))
+    img.put("#165016", to=(0,  0,  32,  1))   # top edge
+    img.put("#165016", to=(0, 31,  32, 32))   # bottom edge
+    img.put("#165016", to=(0,  0,   1, 32))   # left edge
+    img.put("#165016", to=(31, 0,  32, 32))   # right edge
+    # IC body (gold)
+    img.put("#c8960c", to=(8,  7, 24, 25))
+    img.put("#e0aa20", to=(8,  7, 24,  8))    # top highlight
+    img.put("#7a5800", to=(8, 24, 24, 25))    # bottom shadow
+    img.put("#7a5800", to=(23, 7, 24, 25))    # right shadow
+    # Pins — 4 on each side
+    for i in range(4):
+        y = 9 + i * 4
+        img.put("#c8c8c8", to=( 1, y,  8, y+2))   # left
+        img.put("#888888", to=( 1, y+2, 8, y+3))   # pin shadow
+        img.put("#c8c8c8", to=(24, y, 31, y+2))    # right
+        img.put("#888888", to=(24, y+2, 31, y+3))  # pin shadow
+    # Pin 1 marker (white dot, top-left of body)
+    img.put("#ffffff", to=(9, 9, 12, 12))
+    img.put("#cccccc", to=(9, 11, 12, 12))   # subtle shadow on dot
+    return img
+
+
 root = tk.Tk()
 root.title(_t("window_title"))
+_app_icon = _make_app_icon()
+root.iconphoto(True, _app_icon)
+_flag_de, _flag_uk = _make_flags()
 root.resizable(True, True)
 root.minsize(560, 420)
 root.columnconfigure(0, weight=1)
-root.rowconfigure(2, weight=1)  # log area grows when window is resized
+root.rowconfigure(3, weight=1)  # log area grows when window is resized
 
 _name_edited   = tk.BooleanVar(value=False)
 var_tooltips   = tk.BooleanVar(value=True)
@@ -1562,7 +1952,7 @@ frame_topbar.columnconfigure(0, weight=1)
 btn_about = ttk.Button(frame_topbar, text="ℹ", width=3, command=_show_about)
 btn_about.grid(row=0, column=1, sticky="e", padx=(0, 4))
 _tip(btn_about, "tip_about")
-btn_lang = ttk.Button(frame_topbar, text="🇬🇧" if _LANG == "de" else "🇩🇪", width=4, command=_toggle_lang)
+btn_lang = ttk.Button(frame_topbar, image=_flag_uk if _LANG == "de" else _flag_de, command=_toggle_lang)
 btn_lang.grid(row=0, column=2, sticky="e")
 _tip(btn_lang, "tip_lang")
 
@@ -1762,9 +2152,29 @@ btn_clear_log = ttk.Button(frame_btn, text=_t("btn_clear"), command=clear_log)
 btn_clear_log.pack(side=tk.LEFT, padx=4)
 _reg(btn_clear_log, "btn_clear")
 
+# ── Inline preview strip ─────────────────────────────────────────────────────
+frame_preview_strip = ttk.Frame(root, padding=(10, 0, 10, 4))
+frame_preview_strip.grid(row=2, column=0, sticky="ew")
+frame_preview_strip.columnconfigure(0, weight=1)
+frame_preview_strip.columnconfigure(1, weight=1)
+
+_sym_panel = ttk.LabelFrame(frame_preview_strip, text="Symbol", padding=4)
+_sym_panel.grid(row=0, column=0, padx=(0, 4), sticky="nsew")
+canvas_sym_thumb = tk.Canvas(_sym_panel, width=THUMB_W, height=THUMB_H,
+                              bg="white", highlightthickness=0, cursor="hand2")
+canvas_sym_thumb.pack()
+canvas_sym_thumb.bind("<Button-1>", lambda *_: _open_large_preview("sym"))
+
+_fp_panel = ttk.LabelFrame(frame_preview_strip, text="Footprint", padding=4)
+_fp_panel.grid(row=0, column=1, padx=(4, 0), sticky="nsew")
+canvas_fp_thumb = tk.Canvas(_fp_panel, width=THUMB_W, height=THUMB_H,
+                             bg="black", highlightthickness=0, cursor="hand2")
+canvas_fp_thumb.pack()
+canvas_fp_thumb.bind("<Button-1>", lambda *_: _open_large_preview("fp"))
+
 # ── Log area ─────────────────────────────────────────────────────────────────
 frame_log = ttk.LabelFrame(root, text=_t("frm_log"), padding=6)
-frame_log.grid(row=2, column=0, sticky="nsew", padx=10, pady=(0, 10))
+frame_log.grid(row=3, column=0, sticky="nsew", padx=10, pady=(0, 10))
 _reg(frame_log, "frm_log")
 
 text_log = scrolledtext.ScrolledText(frame_log, width=72, height=10, state=tk.DISABLED,
