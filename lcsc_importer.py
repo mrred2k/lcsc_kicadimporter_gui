@@ -82,9 +82,23 @@ _STRINGS: dict = {
     "de": {
         "window_title":   "LCSC → KiCad Importer",
         "lbl_lcsc":       "LCSC-ID(s):",
-        "lbl_name":       "Name (MPN):",
-        "lbl_from_api":   "← aus API",
-        "lbl_output":     "Ausgabe:",
+        "lbl_name":       "MPN:",
+        "frm_component":  "Bauteil",
+        "lbl_from_api":   "← API",
+        "btn_fetch":      "Daten abrufen",
+        "frm_comp_data":  "Bauteil-Daten",
+        "frm_specs":      "Spezifikationen",
+        "col_param":      "Parameter",
+        "col_value":      "Wert",
+        "lbl_import_opts":"Import & Optionen",
+        "status_ready":   "Bereit",
+        "status_loading": "Lade {id}…",
+        "batch_mpn":      "{n} Bauteile",
+        "batch_hint":     "Keine Vorschau bei Mehrfacheingabe — Trockenübung nutzen oder Log prüfen",
+        "lbl_datasheet":  "Datenblatt ↗",
+        "lbl_matched":    "● gefunden",
+        "lbl_not_found":  "○ nicht gefunden",
+        "lbl_output":     "Ausgabe",
         "rb_newlib":      "Neue Library",
         "rb_merge":       "In bestehende Library mergen",
         "lbl_import":     "Import:",
@@ -178,9 +192,10 @@ _STRINGS: dict = {
             "Ohne diese Option schlägt der Import fehl, wenn die Komponente bereits existiert."
         ),
         "tip_cb_cache": (
-            "API-Antworten lokal zwischenspeichern (--use-cache).\n"
-            "Beschleunigt Wiederholungen, verhindert unnötige Netzwerkzugriffe.\n"
-            "Cache liegt in .easyeda_cache/ im aktuellen Verzeichnis."
+            "CAD-Daten (Symbol, Footprint, 3D) lokal zwischenspeichern (--use-cache).\n"
+            "Beschleunigt den Import bei erneuter Verwendung derselben Komponente.\n"
+            "Cache liegt in .easyeda_cache/ im aktuellen Verzeichnis.\n"
+            "Hinweis: betrifft nur den Import, nicht die Bauteil-Vorschau."
         ),
         "tip_cb_projrel": (
             "Speichert den 3D-Pfad relativ zum KiCad-Projekt (--project-relative).\n"
@@ -264,6 +279,7 @@ _STRINGS: dict = {
         "no_fp_dir":       "Footprints-Ordner nicht angegeben.",
         "no_3d_dir":       "3D-Ordner nicht angegeben.",
         "tip_lang":        "Switch to English",
+        "tip_fetch":       "Erneut abrufen (wird beim Tippen automatisch ausgelöst)",
         "btn_preview":     "Vorschau",
         "tip_preview": (
             "Symbol und Footprint als SVG im Browser anzeigen.\n"
@@ -282,9 +298,23 @@ _STRINGS: dict = {
     "en": {
         "window_title":   "LCSC → KiCad Importer",
         "lbl_lcsc":       "LCSC ID(s):",
-        "lbl_name":       "Name (MPN):",
-        "lbl_from_api":   "← from API",
-        "lbl_output":     "Output:",
+        "lbl_name":       "MPN:",
+        "frm_component":  "Component",
+        "lbl_from_api":   "← API",
+        "btn_fetch":      "Fetch data",
+        "frm_comp_data":  "Component Data",
+        "frm_specs":      "Specifications",
+        "col_param":      "Parameter",
+        "col_value":      "Value",
+        "lbl_import_opts":"Import & Options",
+        "status_ready":   "Ready",
+        "status_loading": "Loading {id}…",
+        "batch_mpn":      "{n} components",
+        "batch_hint":     "No preview for batch input — use Dry-run or check the log",
+        "lbl_datasheet":  "Datasheet ↗",
+        "lbl_matched":    "● matched",
+        "lbl_not_found":  "○ not found",
+        "lbl_output":     "Output",
         "rb_newlib":      "New Library",
         "rb_merge":       "Merge into existing Library",
         "lbl_import":     "Import:",
@@ -378,9 +408,10 @@ _STRINGS: dict = {
             "Without this option the import fails if the component already exists."
         ),
         "tip_cb_cache": (
-            "Cache API responses locally (--use-cache).\n"
-            "Speeds up repeated imports, avoids unnecessary network requests.\n"
-            "Cache is stored in .easyeda_cache/ in the current directory."
+            "Cache CAD data (symbol, footprint, 3D) locally (--use-cache).\n"
+            "Speeds up re-importing the same component without re-downloading.\n"
+            "Cache is stored in .easyeda_cache/ in the current directory.\n"
+            "Note: only affects import, not the component info preview."
         ),
         "tip_cb_projrel": (
             "Stores the 3D path relative to the KiCad project (--project-relative).\n"
@@ -464,6 +495,7 @@ _STRINGS: dict = {
         "no_fp_dir":       "Footprints folder not specified.",
         "no_3d_dir":       "3D folder not specified.",
         "tip_lang":        "Auf Deutsch wechseln",
+        "tip_fetch":       "Re-fetch (auto-triggers while you type)",
         "btn_preview":     "Preview",
         "tip_preview": (
             "Show symbol and footprint as SVG in the browser.\n"
@@ -533,34 +565,118 @@ def _parse_ids(raw: str) -> list:
     return result
 
 
-# ── MPN fetch ─────────────────────────────────────────────────────────────────
-def _fetch_mpn(lcsc_id: str):
-    """Return component MPN from EasyEDA API, or None on failure."""
+# ── Design color tokens (used by UI and callback functions) ──────────────────
+_ACCENT          = "#2469c4"
+_MUTED           = "#6b7480"
+_TEXT            = "#20262e"
+_CHIP_NEUTRAL_BG = "#f0f2f5"
+_CHIP_NEUTRAL_FG = "#3a4048"
+_CHIP_STOCK_BG   = "#e4f3ea"
+_CHIP_STOCK_FG   = "#1f8a4d"
+_CHIP_EXT_BG     = "#fff3e0"
+_CHIP_EXT_FG     = "#b85c00"
+_CHIP_ROHS_BG    = "#e6f0fb"
+_CHIP_ROHS_FG    = "#2469c4"
+_CANVAS_SYM_BG   = "white"
+_CANVAS_FP_BG    = "#0c0d10"
+
+# ── API fetch helpers ─────────────────────────────────────────────────────────
+_API_TIMEOUT = 10  # seconds for all external API calls
+
+
+def _fetch_info(lcsc_id: str) -> tuple[str, str]:
+    """Return (name, description) via get_info_from_easyeda_api — one fast call.
+    The title field contains the MPN; no CAD download needed for display."""
+    import socket
+    old = socket.getdefaulttimeout()
     try:
+        socket.setdefaulttimeout(_API_TIMEOUT)
+        from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
+        result = EasyedaApi().get_info_from_easyeda_api(lcsc_id).get("result", {})
+        name = result.get("title", "").strip()
+        desc = result.get("description", "").strip()
+        if not desc:
+            tags = result.get("tags", [])
+            desc = ", ".join(tags) if tags else ""
+        if var_debug.get():  # type: ignore[name-defined]
+            root.after(0, lambda: log(f"[debug] info: name={name!r}  desc={desc[:60]!r}\n", "info"))  # type: ignore[name-defined]
+        return name or lcsc_id, desc
+    except Exception as e:
+        if var_debug.get():  # type: ignore[name-defined]
+            root.after(0, lambda: log(f"[debug] _fetch_info({lcsc_id}): {e}\n", "info"))  # type: ignore[name-defined]
+    finally:
+        socket.setdefaulttimeout(old)
+    return lcsc_id, ""
+
+
+def _fetch_mpn(lcsc_id: str) -> str | None:
+    """Return MPN from full EasyEDA CAD data — used for batch name resolution
+    (more accurate than title for some components)."""
+    import socket
+    old = socket.getdefaulttimeout()
+    try:
+        socket.setdefaulttimeout(_API_TIMEOUT)
         from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
         from easyeda2kicad.easyeda.easyeda_importer import EasyedaSymbolImporter
         cad = EasyedaApi().get_cad_data_of_component(lcsc_id)
         if cad:
             return EasyedaSymbolImporter(easyeda_cp_cad_data=cad).get_symbol().info.name
-    except Exception:
-        pass
+    except Exception as e:
+        if var_debug.get():  # type: ignore[name-defined]
+            root.after(0, lambda: log(f"[debug] _fetch_mpn({lcsc_id}): {e}\n", "info"))  # type: ignore[name-defined]
+    finally:
+        socket.setdefaulttimeout(old)
     return None
+
+
+# ── JLCPCB assembly data fetch ───────────────────────────────────────────────
+def _fetch_jlcpcb(lcsc_id: str) -> dict:
+    """Fetch assembly info from the public JLCPCB parts API (no auth needed)."""
+    import socket
+    old = socket.getdefaulttimeout()
+    try:
+        socket.setdefaulttimeout(_API_TIMEOUT)
+        from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
+        results = EasyedaApi().search_jlcpcb_components(keyword=lcsc_id, page_size=5)
+        for r in results.get("results", []):
+            if r.get("lcsc", "").upper() == lcsc_id.upper():
+                if var_debug.get():  # type: ignore[name-defined]
+                    root.after(0, lambda r=r: log(f"[debug] JLCPCB: {r.get('name')}  stock={r.get('stock')}  type={r.get('type')}\n", "info"))  # type: ignore[name-defined]
+                return r
+        if results.get("results"):
+            r0 = results["results"][0]
+            if var_debug.get():  # type: ignore[name-defined]
+                root.after(0, lambda r=r0: log(f"[debug] JLCPCB (first): {r.get('name')}  stock={r.get('stock')}\n", "info"))  # type: ignore[name-defined]
+            return r0
+    except Exception as e:
+        if var_debug.get():  # type: ignore[name-defined]
+            root.after(0, lambda: log(f"[debug] _fetch_jlcpcb({lcsc_id}): {e}\n", "info"))  # type: ignore[name-defined]
+    finally:
+        socket.setdefaulttimeout(old)
+    return {}
 
 
 # ── Description fetch & inject ──────────────────────────────────────────────
 def _fetch_description(lcsc_id: str) -> str:
-    """Get description from EasyEDA API (same call as MPN fetch, no extra request).
-    Falls back to component tags if the description field is empty."""
+    """Get description from EasyEDA API. Falls back to tags if description is empty."""
+    import socket
+    old = socket.getdefaulttimeout()
     try:
+        socket.setdefaulttimeout(_API_TIMEOUT)
         from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
         result = EasyedaApi().get_info_from_easyeda_api(lcsc_id).get("result", {})
         desc = result.get("description", "").strip()
         if not desc:
             tags = result.get("tags", [])
             desc = ", ".join(tags) if tags else ""
+        if var_debug.get():  # type: ignore[name-defined]
+            root.after(0, lambda: log(f"[debug] description: {desc!r}\n", "info"))  # type: ignore[name-defined]
         return desc
-    except Exception:
-        pass
+    except Exception as e:
+        if var_debug.get():  # type: ignore[name-defined]
+            root.after(0, lambda: log(f"[debug] _fetch_description({lcsc_id}): {e}\n", "info"))  # type: ignore[name-defined]
+    finally:
+        socket.setdefaulttimeout(old)
     return ""
 
 
@@ -946,9 +1062,11 @@ def distribute_new_lib(output_base: str, import_modes: set) -> list:
 # ── UI callbacks ─────────────────────────────────────────────────────────────
 _mpn_timer = None
 _last_fetched_id = None
+_last_jlc: dict = {}
 _prev_3dvar = ""  # saved when switching into project-relative mode
 _inline_sym_svg: str = ""
 _inline_fp_svg: str = ""
+_photo_img_url: str = ""
 
 
 def _on_projrel_change():
@@ -1043,52 +1161,194 @@ def _on_lcsc_keyrelease(*_):
     ids = _parse_ids(entry_lcsc.get())
     if len(ids) == 1:
         btn_preview.config(state=tk.NORMAL)
-        if not _name_edited.get():
-            if _mpn_timer:
-                root.after_cancel(_mpn_timer)
-            _mpn_timer = root.after(700, lambda: _trigger_mpn_fetch(ids[0]))
+        if _mpn_timer:
+            root.after_cancel(_mpn_timer)
+        _var_fetch_hint.set("⟳ …")
+        _mpn_timer = root.after(700, lambda: _trigger_mpn_fetch(ids[0]))
     else:
         btn_preview.config(state=tk.DISABLED)
-        entry_name.config(state=tk.DISABLED)
-        _var_desc.set("")
+        _clear_jlc_info()
+        lbl_mpn_large.config(text=_t("batch_mpn", n=len(ids)), foreground=_MUTED)  # type: ignore[name-defined]
+        _var_desc.set(_t("batch_hint"))
+        lbl_desc_sub.config(foreground=_TEXT)                                       # type: ignore[name-defined]
         canvas_sym_thumb.delete("all")  # type: ignore[name-defined]
         canvas_fp_thumb.delete("all")   # type: ignore[name-defined]
 
 
-def _trigger_mpn_fetch(lcsc_id: str):
+def _trigger_mpn_fetch(lcsc_id: str, force: bool = False):
     global _last_fetched_id
-    if lcsc_id == _last_fetched_id or _name_edited.get():
+    if lcsc_id == _last_fetched_id and not force:
         return
-    entry_name.config(state=tk.NORMAL)
-    entry_name.delete(0, tk.END)
-    entry_name.insert(0, "…")
+    _var_mpn.set("…")
     _var_desc.set("…")
+    _set_status(_t("status_loading", id=lcsc_id), "loading")
+    _dim_card()
 
     def worker():
-        mpn = _fetch_mpn(lcsc_id)
-        name_result = mpn if mpn else lcsc_id
-        desc = _fetch_description(lcsc_id)
-        root.after(0, lambda: _apply_mpn(lcsc_id, name_result, desc))
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            fut_info = pool.submit(_fetch_info,   lcsc_id)
+            fut_jlc  = pool.submit(_fetch_jlcpcb, lcsc_id)
+            name, desc = fut_info.result()
+            root.after(0, lambda n=name, d=desc: _apply_info(lcsc_id, n, d))
+            jlc = fut_jlc.result()
+        root.after(0, lambda j=jlc: _apply_jlc(lcsc_id, j))
 
     threading.Thread(target=worker, daemon=True).start()
 
 
-def _apply_mpn(lcsc_id: str, name: str, desc: str = ""):
-    global _last_fetched_id
+def _apply_info(lcsc_id: str, name: str, desc: str) -> None:
+    """Phase 1 (~0.14 s): show name + description as soon as _fetch_info returns."""
+    if len(_parse_ids(entry_lcsc.get())) != 1:
+        return
+    _var_mpn.set(name)
+    _var_desc.set(desc)
+    lbl_mpn_large.config(text=name, foreground=_TEXT)                          # type: ignore[name-defined]
+    lbl_desc_sub.config(foreground=_MUTED)                                     # type: ignore[name-defined]
+    lbl_mfr_sub.config(foreground=_MUTED)                                      # type: ignore[name-defined]
+    _set_status(_t("status_loading", id=lcsc_id), "loading")
+
+
+def _apply_jlc(lcsc_id: str, jlc: dict | None) -> None:
+    """Phase 2 (~2 s): update chips, links, specs table and preview once JLCPCB data arrives."""
+    global _last_fetched_id, _last_jlc
     _last_fetched_id = lcsc_id
-    if not _name_edited.get() and len(_parse_ids(entry_lcsc.get())) == 1:
-        entry_name.config(state=tk.NORMAL)
-        entry_name.delete(0, tk.END)
-        entry_name.insert(0, name)
-        short = (desc[:67] + "…") if len(desc) > 70 else desc
-        _var_desc.set(short)
+    _last_jlc = jlc or {}
+    if len(_parse_ids(entry_lcsc.get())) == 1:
+        _update_jlc_info(jlc or {}, lcsc_id)
         btn_preview.config(state=tk.NORMAL)
         _update_inline_preview(lcsc_id)
+        _set_status(_t("status_ready"))
+        _var_fetch_hint.set("← API")
 
 
-def _on_name_keypress(*_):
-    _name_edited.set(True)
-    _var_desc.set("")
+def _set_status(text: str, level: str = "ok") -> None:
+    _var_status.set(text)                                                       # type: ignore[name-defined]
+    colors = {"ok": _CHIP_STOCK_FG, "loading": _CHIP_EXT_FG,
+              "error": "#cc0000", "idle": _MUTED}
+    lbl_status_dot.config(foreground=colors.get(level, _MUTED))                # type: ignore[name-defined]
+
+
+def _load_part_photo(url: str) -> None:
+    """Async: fetch product image from URL and render into canvas_photo."""
+    global _photo_img_url
+    _photo_img_url = url
+    def worker():
+        try:
+            from PIL import Image, ImageTk
+            import io, urllib.request
+            with urllib.request.urlopen(url, timeout=10) as r:  # noqa: S310
+                data = r.read()
+            img = Image.open(io.BytesIO(data)).convert("RGB")
+            img.thumbnail((52, 62))
+            photo = ImageTk.PhotoImage(img)
+            root.after(0, lambda p=photo: _apply_photo(p))      # type: ignore[name-defined]
+        except Exception:
+            pass
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def _apply_photo(photo) -> None:                                                # type: ignore[name-defined]
+    canvas_photo.delete("all")                                                  # type: ignore[name-defined]
+    canvas_photo.image = photo  # keep reference                                # type: ignore[name-defined]
+    canvas_photo.create_image(26, 31, image=photo)                              # type: ignore[name-defined]
+
+
+def _update_jlc_info(jlc: dict, lcsc_id: str = "") -> None:
+    jtype = jlc.get("type", "")
+    stock = jlc.get("stock", 0)
+    price = jlc.get("price")
+    pkg   = jlc.get("package", "")
+    brand = jlc.get("brand", "")
+    sheet = jlc.get("datasheet", "")
+    url   = jlc.get("url", "")
+    attrs = jlc.get("attributes", [])
+
+    sub = f"{brand}  ·  LCSC {lcsc_id}" if brand and lcsc_id else (brand or (f"LCSC {lcsc_id}" if lcsc_id else ""))
+    lbl_mfr_sub.config(text=sub, foreground=_MUTED)                             # type: ignore[name-defined]
+
+    if jtype == "Basic":
+        lbl_chip_type.config(text="● Basic",    bg=_CHIP_STOCK_BG, fg=_CHIP_STOCK_FG)  # type: ignore[name-defined]
+    elif jtype == "Extended":
+        lbl_chip_type.config(text="◆ Extended", bg=_CHIP_EXT_BG,   fg=_CHIP_EXT_FG)   # type: ignore[name-defined]
+    else:
+        lbl_chip_type.config(text="",           bg=_CHIP_NEUTRAL_BG, fg=_CHIP_NEUTRAL_FG)  # type: ignore[name-defined]
+
+    lbl_chip_stock.config(text=f"{stock:,} in stock" if stock else "")         # type: ignore[name-defined]
+    lbl_chip_pkg.config(text=pkg or "")                                         # type: ignore[name-defined]
+    lbl_chip_rohs.config(text="RoHS" if jlc else "")                           # type: ignore[name-defined]
+    lbl_chip_price.config(text=f"${float(price):.3f} @1+" if price else "")    # type: ignore[name-defined]
+
+    if sheet:
+        btn_datasheet.config(fg=_ACCENT, cursor="hand2")                        # type: ignore[name-defined]
+        btn_datasheet.bind("<Button-1>", lambda *_, u=sheet: __import__("webbrowser").open(u))  # type: ignore[name-defined]
+    else:
+        btn_datasheet.config(fg=_CHIP_NEUTRAL_FG, cursor="")                    # type: ignore[name-defined]
+        btn_datasheet.unbind("<Button-1>")                                       # type: ignore[name-defined]
+
+    if url:
+        btn_lcsc.config(fg=_ACCENT, cursor="hand2")                             # type: ignore[name-defined]
+        btn_lcsc.bind("<Button-1>", lambda *_, u=url: __import__("webbrowser").open(u))  # type: ignore[name-defined]
+    else:
+        btn_lcsc.config(fg=_CHIP_NEUTRAL_FG, cursor="")                         # type: ignore[name-defined]
+        btn_lcsc.unbind("<Button-1>")                                            # type: ignore[name-defined]
+
+    lbl_matched.config(text=_t("lbl_matched") if jlc else _t("lbl_not_found"), # type: ignore[name-defined]
+                       foreground=_CHIP_STOCK_FG if jlc else _MUTED)
+
+    for row in tree_specs.get_children():                                       # type: ignore[name-defined]
+        tree_specs.delete(row)                                                  # type: ignore[name-defined]
+    for i, attr in enumerate(attrs):
+        tree_specs.insert("", "end", values=(attr.get("name",""), attr.get("value","")),  # type: ignore[name-defined]
+                          tags=("odd",) if i % 2 else ())
+    tree_specs.tag_configure("odd", background="#fafbfc")                       # type: ignore[name-defined]
+
+    if url:
+        def _fetch_photo():
+            try:
+                from easyeda2kicad.easyeda.easyeda_api import EasyedaApi
+                img_url = EasyedaApi().get_product_image_url(url)
+                if img_url:
+                    _load_part_photo(img_url)
+            except Exception:
+                pass
+        threading.Thread(target=_fetch_photo, daemon=True).start()
+
+
+_DIM = "#b8bdc4"  # colour used to grey-out stale card content during loading
+
+def _dim_card() -> None:
+    """Grey out the component card while a fetch is in progress."""
+    lbl_mpn_large.config(foreground=_DIM)                                        # type: ignore[name-defined]
+    lbl_mfr_sub.config(foreground=_DIM)                                          # type: ignore[name-defined]
+    lbl_matched.config(foreground=_DIM)                                          # type: ignore[name-defined]
+    lbl_desc_sub.config(foreground=_DIM)                                         # type: ignore[name-defined]
+    for chip in (lbl_chip_type, lbl_chip_stock, lbl_chip_pkg,   # type: ignore[name-defined]
+                 lbl_chip_rohs, lbl_chip_price):                # type: ignore[name-defined]
+        chip.config(fg=_DIM)
+    for _lnk in (btn_datasheet, btn_lcsc):                      # type: ignore[name-defined]
+        _lnk.config(fg=_DIM, cursor="")
+        _lnk.unbind("<Button-1>")
+
+
+def _clear_jlc_info() -> None:
+    lbl_mpn_large.config(text="—")                                              # type: ignore[name-defined]
+    lbl_mfr_sub.config(text="")                                                 # type: ignore[name-defined]
+    lbl_matched.config(text="")                                                 # type: ignore[name-defined]
+    for chip in (lbl_chip_type, lbl_chip_stock, lbl_chip_pkg,   # type: ignore[name-defined]
+                 lbl_chip_rohs, lbl_chip_price):               # type: ignore[name-defined]
+        chip.config(text="", bg=_CHIP_NEUTRAL_BG, fg=_CHIP_NEUTRAL_FG)
+    for _lnk in (btn_datasheet, btn_lcsc):                                       # type: ignore[name-defined]
+        _lnk.config(fg=_CHIP_NEUTRAL_FG, cursor="")
+        _lnk.unbind("<Button-1>")
+    for row in tree_specs.get_children():                                       # type: ignore[name-defined]
+        tree_specs.delete(row)                                                  # type: ignore[name-defined]
+    canvas_photo.delete("all")                                                  # type: ignore[name-defined]
+    canvas_photo.create_text(26, 31, text="IMG", fill="#9aa3ad",                # type: ignore[name-defined]
+                              font=("Segoe UI", 9))
+    global _photo_img_url
+    _photo_img_url = ""
+    _var_fetch_hint.set("← API")
 
 
 def _get_modes() -> set:
@@ -1199,11 +1459,27 @@ def _run_one(lcsc_id: str, name: str):
 
 
 # ── Dry run ───────────────────────────────────────────────────────────────────
-def _dry_run_one(lcsc_id: str, name: str, modes: set, is_batch: bool = False):
+def _dry_run_one(lcsc_id: str, name: str, modes: set, jlc: dict | None = None):
     """Log what would happen for one component without writing any files."""
     log(f"► {lcsc_id}  →  {name}\n", "info")
-    if is_batch:
-        log(_t("dryrun_batch_note"), "info")
+
+    jlc = jlc or {}
+    brand   = jlc.get("brand", "")
+    desc    = jlc.get("description", "")
+    jtype   = jlc.get("type", "")
+    stock   = jlc.get("stock", 0)
+    price   = jlc.get("price")
+    pkg     = jlc.get("package", "")
+
+    if brand or jtype or stock or price:
+        type_str  = f"{'● Basic' if jtype == 'Basic' else '◆ Extended' if jtype == 'Extended' else jtype}"
+        stock_str = f"{stock:,} in stock" if stock else ""
+        price_str = f"${float(price):.3f} @1+" if price else ""
+        pkg_str   = pkg or ""
+        parts = [p for p in [brand, type_str, pkg_str, stock_str, price_str] if p]
+        log(f"  {' · '.join(parts)}\n", "info")
+    if desc:
+        log(f"  {desc}\n", "info")
 
     ow = var_overwrite.get()
     do_sym = "symbol" in modes
@@ -1283,6 +1559,49 @@ def _dry_run_one(lcsc_id: str, name: str, modes: set, is_batch: bool = False):
                 _check("3D", Path(dir_3d) / f"{name}.3dshapes")
 
 
+def _log_dryrun_params(modes: set) -> None:
+    """Log a compact parameter summary block for the dry-run header."""
+    tick = lambda v: "✓" if v else "✗"   # noqa: E731
+
+    # Import types
+    type_parts = []
+    if "symbol"    in modes: type_parts.append("Symbol")
+    if "footprint" in modes: type_parts.append("Footprint")
+    if "3d"        in modes: type_parts.append("3D model")
+    log(f"  Import:    {', '.join(type_parts)}\n", "info")
+
+    # Output mode + paths
+    if var_merge_mode.get():
+        log("  Mode:      Merge into existing library\n", "info")
+        if "symbol"    in modes: log(f"  Sym-lib:   {entry_merge_sym.get().strip() or '—'}\n", "info")
+        if "footprint" in modes: log(f"  FP-lib:    {entry_merge_fp.get().strip() or '—'}\n",  "info")
+        if "3d"        in modes: log(f"  3D-dir:    {entry_merge_3d.get().strip() or '—'}\n",  "info")
+    else:
+        log("  Mode:      New library\n", "info")
+        if "symbol"    in modes: log(f"  Sym-dir:   {entry_newlib_sym.get().strip() or '—'}\n", "info")
+        if "footprint" in modes: log(f"  FP-dir:    {entry_newlib_fp.get().strip() or '—'}\n",  "info")
+        if "3d"        in modes: log(f"  3D-dir:    {entry_newlib_3d.get().strip() or '—'}\n",  "info")
+
+    # 3D variable
+    v3d = entry_3dvar.get().strip()
+    if v3d and "3d" in modes:
+        log(f"  3D var:    {v3d}\n", "info")
+
+    # Options
+    opts = (
+        f"Overwrite {tick(var_overwrite.get())}  "
+        f"Cache {tick(var_cache.get())}  "
+        f"Proj-rel {tick(var_projrel.get())}  "
+        f"Debug {tick(var_debug.get())}"
+    )
+    log(f"  Options:   {opts}\n", "info")
+
+    # Custom fields
+    cf = entry_custom.get().strip()
+    if cf:
+        log(f"  Custom:    {cf}\n", "info")
+
+
 def dry_run():
     raw_input = entry_lcsc.get().strip()
     ids = _parse_ids(raw_input)
@@ -1298,21 +1617,22 @@ def dry_run():
     log(f"{sep}\n", "info")
     log(f"{_t('dryrun_header')}\n", "info")
     log(f"{sep}\n", "info")
+    _log_dryrun_params(modes)
+    log(f"{sep}\n", "info")
 
     raw_count = len([p for p in re.split(r"[,;\s]+", raw_input.strip()) if p])
     if raw_count > len(ids):
         log(_t("info_dups", n=raw_count - len(ids)), "info")
 
     if len(ids) == 1:
-        name = entry_name.get().strip() or ids[0]
-        _dry_run_one(ids[0], name, modes, is_batch=False)
+        name = _var_mpn.get().strip() or ids[0]
+        jlc  = _last_jlc if _last_fetched_id == ids[0] else {}
+        _dry_run_one(ids[0], name, modes, jlc)
+        log(f"{sep}\n", "info")
+        log(f"{_t('dryrun_footer')}\n", "info")
+        log(f"{sep}\n", "info")
     else:
-        for lcsc_id in ids:
-            _dry_run_one(lcsc_id, lcsc_id, modes, is_batch=True)
-
-    log(f"{sep}\n", "info")
-    log(f"{_t('dryrun_footer')}\n", "info")
-    log(f"{sep}\n", "info")
+        _start_batch_dryrun(ids, modes, sep)
 
 
 def run_import():
@@ -1336,13 +1656,52 @@ def run_import():
     btn_dry_run.config(state=tk.DISABLED)
 
     if len(ids) == 1:
-        name = entry_name.get().strip() or ids[0]
+        name = _var_mpn.get().strip() or ids[0]
         threading.Thread(
             target=_batch_worker, args=([ids[0]], {ids[0]: name}), daemon=True
         ).start()
     else:
         # Batch: fetch all MPNs first, then show confirm dialog with the list
         _start_batch_resolve(ids)
+
+
+def _start_batch_dryrun(ids: list, modes: set, sep: str) -> None:
+    """Resolve MPNs for all IDs in background, then log dry-run results."""
+    dlg = tk.Toplevel(root)
+    dlg.title(_t("dlg_loading_title"))
+    dlg.resizable(False, False)
+    dlg.grab_set()
+    ttk.Label(dlg, text=_t("dlg_loading_msg", n=len(ids)),
+              padding=(20, 14, 20, 6)).pack()
+    pb = ttk.Progressbar(dlg, mode="indeterminate", length=260)
+    pb.pack(padx=20, pady=(0, 16))
+    pb.start(10)
+    dlg.update_idletasks()
+    x = root.winfo_x() + (root.winfo_width()  - dlg.winfo_reqwidth())  // 2
+    y = root.winfo_y() + (root.winfo_height() - dlg.winfo_reqheight()) // 2
+    dlg.geometry(f"+{x}+{y}")
+
+    id_name: dict = {}
+    id_jlc:  dict = {}
+
+    def fetch_all():
+        for lcsc_id in ids:
+            mpn = _fetch_mpn(lcsc_id)
+            id_name[lcsc_id] = mpn if mpn else lcsc_id
+            id_jlc[lcsc_id]  = _fetch_jlcpcb(lcsc_id)
+        root.after(0, lambda: _finish_batch_dryrun(dlg, ids, id_name, id_jlc, modes, sep))
+
+    threading.Thread(target=fetch_all, daemon=True).start()
+
+
+def _finish_batch_dryrun(dlg: tk.Toplevel, ids: list, id_name: dict,
+                          id_jlc: dict, modes: set, sep: str) -> None:
+    dlg.destroy()
+    for lcsc_id in ids:
+        _dry_run_one(lcsc_id, id_name[lcsc_id], modes, id_jlc.get(lcsc_id))
+    log(f"{sep}\n", "info")
+    log(f"{_t('dryrun_footer')}\n", "info")
+    log(f"{sep}\n", "info")
 
 
 def _start_batch_resolve(ids: list):
@@ -1760,7 +2119,7 @@ def _show_preview():
     if len(ids) != 1:
         return
     lcsc_id = ids[0]
-    name = entry_name.get().strip() or lcsc_id
+    name = _var_mpn.get().strip() or lcsc_id
 
     btn_preview.config(state=tk.DISABLED)
     log(_t("preview_loading", lcsc_id=lcsc_id), "info")
@@ -1793,6 +2152,7 @@ def _open_preview_window(lcsc_id: str, name: str, sym_svg: str, fp_svg: str):
     dlg.resizable(True, True)
 
     CANVAS_W, CANVAS_H = 380, 380
+    PHOTO_W, PHOTO_H   = 200, 380
 
     frame = ttk.Frame(dlg, padding=10)
     frame.pack(fill=tk.BOTH, expand=True)
@@ -1800,13 +2160,51 @@ def _open_preview_window(lcsc_id: str, name: str, sym_svg: str, fp_svg: str):
     bg_colors = ["white", "black"]
     for col_idx, (label, svg) in enumerate([("Symbol", sym_svg), ("Footprint", fp_svg)]):
         panel = ttk.LabelFrame(frame, text=label, padding=4)
-        panel.grid(row=0, column=col_idx, padx=(0, 8 if col_idx == 0 else 0), sticky="nsew")
+        panel.grid(row=0, column=col_idx, padx=(0, 8), sticky="nsew")
         frame.columnconfigure(col_idx, weight=1)
         frame.rowconfigure(0, weight=1)
         c = tk.Canvas(panel, width=CANVAS_W, height=CANVAS_H, bg=bg_colors[col_idx],
                       highlightthickness=0)
         c.pack(fill=tk.BOTH, expand=True)
         _svg_on_canvas(c, svg, CANVAS_W, CANVAS_H)
+
+    # Photo panel (third column, fixed width)
+    photo_panel = ttk.LabelFrame(frame, text="Photo", padding=4)
+    photo_panel.grid(row=0, column=2, sticky="nsew")
+    frame.columnconfigure(2, weight=0)
+    canvas_prev_photo = tk.Canvas(photo_panel, width=PHOTO_W, height=PHOTO_H,
+                                  bg="#f0f2f5", highlightthickness=0)
+    canvas_prev_photo.pack(fill=tk.BOTH, expand=True)
+    canvas_prev_photo.create_text(PHOTO_W // 2, PHOTO_H // 2, text="Loading…",
+                                  fill="#9aa3ad", font=("Segoe UI", 10))
+
+    if _photo_img_url:
+        def _load_preview_photo(url: str, c: tk.Canvas, w: int, h: int):
+            def worker():
+                try:
+                    from PIL import Image, ImageTk
+                    import io, urllib.request
+                    with urllib.request.urlopen(url, timeout=10) as r:  # noqa: S310
+                        data = r.read()
+                    img = Image.open(io.BytesIO(data)).convert("RGB")
+                    img.thumbnail((w, h))
+                    photo = ImageTk.PhotoImage(img)
+                    def apply(p=photo):
+                        c.delete("all")
+                        c.image = p  # type: ignore[attr-defined]
+                        c.create_image(w // 2, h // 2, image=p)
+                    root.after(0, apply)
+                except Exception:
+                    root.after(0, lambda: (c.delete("all"), c.create_text(
+                        w // 2, h // 2, text="No image",
+                        fill="#9aa3ad", font=("Segoe UI", 10))))
+            threading.Thread(target=worker, daemon=True).start()
+
+        _load_preview_photo(_photo_img_url, canvas_prev_photo, PHOTO_W, PHOTO_H)
+    else:
+        canvas_prev_photo.delete("all")
+        canvas_prev_photo.create_text(PHOTO_W // 2, PHOTO_H // 2, text="No image",
+                                      fill="#9aa3ad", font=("Segoe UI", 10))
 
     dlg.update_idletasks()
     x = root.winfo_x() + max(0, (root.winfo_width()  - dlg.winfo_reqwidth())  // 2)
@@ -1934,226 +2332,327 @@ _app_icon = _make_app_icon()
 root.iconphoto(True, _app_icon)
 _flag_de, _flag_uk = _make_flags()
 root.resizable(True, True)
-root.minsize(560, 420)
+root.minsize(840, 560)
 root.columnconfigure(0, weight=1)
-root.rowconfigure(3, weight=1)  # log area grows when window is resized
+root.rowconfigure(2, weight=1)  # log grows when window is resized
 
-_name_edited   = tk.BooleanVar(value=False)
-var_tooltips   = tk.BooleanVar(value=True)
-var_merge_mode = tk.BooleanVar(value=False)
-_var_desc      = tk.StringVar(value="")
+# ── Theme (sv-ttk light, fall back to clam) ───────────────────────────────────
+try:
+    import sv_ttk as _sv_ttk
+    _sv_ttk.set_theme("light")
+except ImportError:
+    ttk.Style().theme_use("clam")
+
+_style = ttk.Style()
+_style.configure("Accent.TButton",  background=_ACCENT,        foreground="#ffffff",
+                 borderwidth=0, focusthickness=0, relief="flat", padding=(10, 5))
+_style.map(      "Accent.TButton",  background=[("active", "#1a56a8"), ("pressed", "#174899")])
+_style.configure("Green.TButton",   background=_CHIP_STOCK_FG, foreground="#ffffff",
+                 borderwidth=0, focusthickness=0, relief="flat", padding=(10, 5))
+_style.map(      "Green.TButton",   background=[("active", "#196a3e")])
+_style.configure("Specs.Treeview",  font=("Segoe UI", 10), rowheight=22,
+                 background="#ffffff", fieldbackground="#ffffff")
+_style.configure("Specs.Treeview.Heading", font=("Segoe UI", 10, "bold"))
+
+_var_mpn        = tk.StringVar(value="")
+var_tooltips    = tk.BooleanVar(value=True)
+var_merge_mode  = tk.BooleanVar(value=False)
+_var_desc       = tk.StringVar(value="")
+_var_status     = tk.StringVar(value="")
+_var_fetch_hint = tk.StringVar(value="← API")
 ToolTip.enabled = var_tooltips
-pad = {"padx": 8, "pady": 3}
 
-# ── Language toggle bar ───────────────────────────────────────────────────────
+_W = 11  # window margin
+
+# ── Row 0: Top input bar ─────────────────────────────────────────────────────
 frame_topbar = ttk.Frame(root)
-frame_topbar.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 0))
-frame_topbar.columnconfigure(0, weight=1)
-btn_about = ttk.Button(frame_topbar, text="ℹ", width=3, command=_show_about)
-btn_about.grid(row=0, column=1, sticky="e", padx=(0, 4))
-_tip(btn_about, "tip_about")
-btn_lang = ttk.Button(frame_topbar, image=_flag_uk if _LANG == "de" else _flag_de, command=_toggle_lang)
-btn_lang.grid(row=0, column=2, sticky="e")
-_tip(btn_lang, "tip_lang")
+frame_topbar.grid(row=0, column=0, sticky="ew", padx=_W, pady=(_W, 0))
+frame_topbar.columnconfigure(1, weight=1)
 
-# ── Controls frame ────────────────────────────────────────────────────────────
-frame_top = ttk.Frame(root, padding=10)
-frame_top.grid(row=1, column=0, sticky="ew")
-frame_top.columnconfigure(1, weight=1)
-
-# ── Row 0: LCSC IDs ──────────────────────────────────────────────────────────
-_reg(ttk.Label(frame_top, text=_t("lbl_lcsc")), "lbl_lcsc").grid(
-    row=0, column=0, sticky="w", **pad)
-entry_lcsc = ttk.Entry(frame_top, width=44)
-entry_lcsc.grid(row=0, column=1, columnspan=2, sticky="ew", **pad)
+_reg(ttk.Label(frame_topbar, text=_t("lbl_lcsc"), font=("Segoe UI", 11, "bold")),
+     "lbl_lcsc").grid(row=0, column=0, sticky="w", padx=(0, 5))
+entry_lcsc = ttk.Entry(frame_topbar, font=("Consolas", 11))
+entry_lcsc.grid(row=0, column=1, sticky="ew", padx=(0, 8))
 entry_lcsc.insert(0, "C6022114")
 entry_lcsc.bind("<KeyRelease>", _on_lcsc_keyrelease)
+entry_lcsc.bind("<Return>", lambda *_: _trigger_mpn_fetch(entry_lcsc.get().strip(), force=True))
 _tip(entry_lcsc, "tip_lcsc")
 
-# ── Row 1: Name (MPN) ────────────────────────────────────────────────────────
-_reg(ttk.Label(frame_top, text=_t("lbl_name")), "lbl_name").grid(
-    row=1, column=0, sticky="w", **pad)
-entry_name = ttk.Entry(frame_top, width=30)
-entry_name.grid(row=1, column=1, sticky="w", **pad)
-entry_name.insert(0, "C6022114")
-entry_name.bind("<Key>", _on_name_keypress)
-_reg(ttk.Label(frame_top, text=_t("lbl_from_api"), foreground="gray"),
-     "lbl_from_api").grid(row=1, column=2, sticky="w", padx=(0, 8))
-_tip(entry_name, "tip_name")
+ttk.Label(frame_topbar, textvariable=_var_fetch_hint,
+          foreground=_MUTED, font=("Segoe UI", 9)).grid(row=0, column=2, padx=(0, 8))
 
-# ── Row 2: Description hint ──────────────────────────────────────────────────
-lbl_desc = ttk.Label(frame_top, textvariable=_var_desc, foreground="gray",
-                     font=("TkDefaultFont", 8))
-lbl_desc.grid(row=2, column=1, columnspan=2, sticky="w", padx=(8, 8), pady=(0, 3))
+btn_fetch = _reg(ttk.Button(frame_topbar, text="↻", width=3,
+                              command=lambda: _trigger_mpn_fetch(entry_lcsc.get().strip(), force=True)),
+                 "btn_fetch")
+btn_fetch.grid(row=0, column=3, padx=(0, 10))
+_tip(btn_fetch, "tip_fetch")
 
-# ── Row 3: Output mode toggle ─────────────────────────────────────────────────
-_reg(ttk.Label(frame_top, text=_t("lbl_output")), "lbl_output").grid(
-    row=3, column=0, sticky="w", **pad)
-frame_mode_toggle = ttk.Frame(frame_top)
-frame_mode_toggle.grid(row=3, column=1, columnspan=2, sticky="w", **pad)
+ttk.Separator(frame_topbar, orient=tk.VERTICAL).grid(row=0, column=4, sticky="ns", padx=(0, 6))
+btn_about = ttk.Button(frame_topbar, text="ℹ", width=3, command=_show_about)
+btn_about.grid(row=0, column=5, padx=(0, 4))
+_tip(btn_about, "tip_about")
+btn_lang = ttk.Button(frame_topbar, image=_flag_uk if _LANG == "de" else _flag_de, command=_toggle_lang)
+btn_lang.grid(row=0, column=6)
+_tip(btn_lang, "tip_lang")
+
+# ── Row 1: Main two-column area ──────────────────────────────────────────────
+frame_main = ttk.Frame(root)
+frame_main.grid(row=1, column=0, sticky="nsew", padx=_W, pady=(8, 0))
+frame_main.columnconfigure(1, weight=1)
+frame_main.rowconfigure(0, weight=1)
+
+# ════════════════════════════════════════════════════════════ LEFT COLUMN ═════
+frame_left = ttk.Frame(frame_main, width=370)
+frame_left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+frame_left.columnconfigure(0, weight=1)
+frame_left.rowconfigure(2, weight=1)
+frame_left.grid_propagate(False)
+
+_LW = 10  # label column width (chars)
+
+# ─ Output target ─────────────────────────────────────────────────────────────
+grp_output = _reg(ttk.LabelFrame(frame_left, text=_t("lbl_output"), padding=(9, 6)), "lbl_output")
+grp_output.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+grp_output.columnconfigure(0, weight=1)
+
+frame_mode_toggle = ttk.Frame(grp_output)
+frame_mode_toggle.grid(row=0, column=0, sticky="w", pady=(0, 6))
 _reg(ttk.Radiobutton(frame_mode_toggle, text=_t("rb_newlib"),
                      variable=var_merge_mode, value=False,
-                     command=_on_merge_mode_change), "rb_newlib").pack(side=tk.LEFT, padx=(0, 12))
+                     command=_on_merge_mode_change), "rb_newlib").pack(side=tk.LEFT, padx=(0, 16))
 _reg(ttk.Radiobutton(frame_mode_toggle, text=_t("rb_merge"),
                      variable=var_merge_mode, value=True,
                      command=_on_merge_mode_change), "rb_merge").pack(side=tk.LEFT)
 
-# ── Row 4: Output section (switchable) ───────────────────────────────────────
-frame_output_section = ttk.Frame(frame_top)
-frame_output_section.grid(row=4, column=0, columnspan=3, sticky="ew")
+frame_output_section = ttk.Frame(grp_output)
+frame_output_section.grid(row=1, column=0, sticky="ew")
 frame_output_section.columnconfigure(0, weight=1)
 
-# Sub-frame A: New Library (3 separate target dirs)
 frame_newlib = ttk.Frame(frame_output_section)
 frame_newlib.columnconfigure(1, weight=1)
 
-_reg(ttk.Label(frame_newlib, text=_t("lbl_newlib_sym")), "lbl_newlib_sym").grid(
-    row=0, column=0, sticky="w", **pad)
-entry_newlib_sym = ttk.Entry(frame_newlib, width=44)
-entry_newlib_sym.grid(row=0, column=1, sticky="ew", **pad)
-ttk.Button(frame_newlib, text="…", width=3, command=browse_newlib_sym).grid(row=0, column=2, **pad)
+_reg(ttk.Label(frame_newlib, text=_t("lbl_newlib_sym"), width=_LW, anchor="e"),
+     "lbl_newlib_sym").grid(row=0, column=0, sticky="e", padx=(0, 5), pady=2)
+entry_newlib_sym = ttk.Entry(frame_newlib, font=("Consolas", 9))
+entry_newlib_sym.grid(row=0, column=1, sticky="ew", pady=2)
+ttk.Button(frame_newlib, text="…", width=2, command=browse_newlib_sym).grid(row=0, column=2, padx=(4,0), pady=2)
 _tip(entry_newlib_sym, "tip_newlib_sym")
 entry_newlib_sym.bind("<FocusOut>", lambda _: _save_config())
 
-_reg(ttk.Label(frame_newlib, text=_t("lbl_newlib_fp")), "lbl_newlib_fp").grid(
-    row=1, column=0, sticky="w", **pad)
-entry_newlib_fp = ttk.Entry(frame_newlib, width=44)
-entry_newlib_fp.grid(row=1, column=1, sticky="ew", **pad)
-ttk.Button(frame_newlib, text="…", width=3, command=browse_newlib_fp).grid(row=1, column=2, **pad)
+_reg(ttk.Label(frame_newlib, text=_t("lbl_newlib_fp"), width=_LW, anchor="e"),
+     "lbl_newlib_fp").grid(row=1, column=0, sticky="e", padx=(0, 5), pady=2)
+entry_newlib_fp = ttk.Entry(frame_newlib, font=("Consolas", 9))
+entry_newlib_fp.grid(row=1, column=1, sticky="ew", pady=2)
+ttk.Button(frame_newlib, text="…", width=2, command=browse_newlib_fp).grid(row=1, column=2, padx=(4,0), pady=2)
 _tip(entry_newlib_fp, "tip_newlib_fp")
 entry_newlib_fp.bind("<FocusOut>", lambda _: _save_config())
 
-_reg(ttk.Label(frame_newlib, text=_t("lbl_newlib_3d")), "lbl_newlib_3d").grid(
-    row=2, column=0, sticky="w", **pad)
-entry_newlib_3d = ttk.Entry(frame_newlib, width=44)
-entry_newlib_3d.grid(row=2, column=1, sticky="ew", **pad)
-ttk.Button(frame_newlib, text="…", width=3, command=browse_newlib_3d).grid(row=2, column=2, **pad)
+_reg(ttk.Label(frame_newlib, text=_t("lbl_newlib_3d"), width=_LW, anchor="e"),
+     "lbl_newlib_3d").grid(row=2, column=0, sticky="e", padx=(0, 5), pady=2)
+entry_newlib_3d = ttk.Entry(frame_newlib, font=("Consolas", 9))
+entry_newlib_3d.grid(row=2, column=1, sticky="ew", pady=2)
+ttk.Button(frame_newlib, text="…", width=2, command=browse_newlib_3d).grid(row=2, column=2, padx=(4,0), pady=2)
 _tip(entry_newlib_3d, "tip_newlib_3d")
 entry_newlib_3d.bind("<FocusOut>", lambda _: _save_config())
 
-# Sub-frame B: Merge into existing libraries
 frame_merge = ttk.Frame(frame_output_section)
 frame_merge.columnconfigure(1, weight=1)
 
-_reg(ttk.Label(frame_merge, text=_t("lbl_merge_sym")), "lbl_merge_sym").grid(
-    row=0, column=0, sticky="w", **pad)
-entry_merge_sym = ttk.Entry(frame_merge, width=44)
-entry_merge_sym.grid(row=0, column=1, sticky="ew", **pad)
-ttk.Button(frame_merge, text="…", width=3, command=browse_merge_sym).grid(row=0, column=2, **pad)
+_reg(ttk.Label(frame_merge, text=_t("lbl_merge_sym"), width=_LW, anchor="e"),
+     "lbl_merge_sym").grid(row=0, column=0, sticky="e", padx=(0, 5), pady=2)
+entry_merge_sym = ttk.Entry(frame_merge, font=("Consolas", 9))
+entry_merge_sym.grid(row=0, column=1, sticky="ew", pady=2)
+ttk.Button(frame_merge, text="…", width=2, command=browse_merge_sym).grid(row=0, column=2, padx=(4,0), pady=2)
 _tip(entry_merge_sym, "tip_merge_sym")
 entry_merge_sym.bind("<FocusOut>", lambda _: _save_config())
 
-_reg(ttk.Label(frame_merge, text=_t("lbl_merge_fp")), "lbl_merge_fp").grid(
-    row=1, column=0, sticky="w", **pad)
-entry_merge_fp = ttk.Entry(frame_merge, width=44)
-entry_merge_fp.grid(row=1, column=1, sticky="ew", **pad)
-ttk.Button(frame_merge, text="…", width=3, command=browse_merge_fp).grid(row=1, column=2, **pad)
+_reg(ttk.Label(frame_merge, text=_t("lbl_merge_fp"), width=_LW, anchor="e"),
+     "lbl_merge_fp").grid(row=1, column=0, sticky="e", padx=(0, 5), pady=2)
+entry_merge_fp = ttk.Entry(frame_merge, font=("Consolas", 9))
+entry_merge_fp.grid(row=1, column=1, sticky="ew", pady=2)
+ttk.Button(frame_merge, text="…", width=2, command=browse_merge_fp).grid(row=1, column=2, padx=(4,0), pady=2)
 _tip(entry_merge_fp, "tip_merge_fp")
 entry_merge_fp.bind("<FocusOut>", lambda _: _save_config())
 
-_reg(ttk.Label(frame_merge, text=_t("lbl_merge_3d")), "lbl_merge_3d").grid(
-    row=2, column=0, sticky="w", **pad)
-entry_merge_3d = ttk.Entry(frame_merge, width=44)
-entry_merge_3d.grid(row=2, column=1, sticky="ew", **pad)
-ttk.Button(frame_merge, text="…", width=3, command=browse_merge_3d).grid(row=2, column=2, **pad)
+_reg(ttk.Label(frame_merge, text=_t("lbl_merge_3d"), width=_LW, anchor="e"),
+     "lbl_merge_3d").grid(row=2, column=0, sticky="e", padx=(0, 5), pady=2)
+entry_merge_3d = ttk.Entry(frame_merge, font=("Consolas", 9))
+entry_merge_3d.grid(row=2, column=1, sticky="ew", pady=2)
+ttk.Button(frame_merge, text="…", width=2, command=browse_merge_3d).grid(row=2, column=2, padx=(4,0), pady=2)
 _tip(entry_merge_3d, "tip_merge_3d")
 entry_merge_3d.bind("<FocusOut>", lambda _: _save_config())
 
-# Initially show new-library frame; load config and apply
 frame_newlib.pack(fill=tk.X)
 
-# ── Row 5: Import type checkboxes ─────────────────────────────────────────────
-_reg(ttk.Label(frame_top, text=_t("lbl_import")), "lbl_import").grid(
-    row=5, column=0, sticky="w", **pad)
-frame_mode = ttk.Frame(frame_top)
-frame_mode.grid(row=5, column=1, columnspan=2, sticky="w", **pad)
+# ─ Import & options ──────────────────────────────────────────────────────────
+grp_import = _reg(ttk.LabelFrame(frame_left, text=_t("lbl_import_opts"), padding=(9, 6)), "lbl_import_opts")
+grp_import.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+grp_import.columnconfigure(0, weight=1)
+
+frame_import_types = ttk.Frame(grp_import)
+frame_import_types.grid(row=0, column=0, sticky="w", pady=(0, 6))
 var_mode_sym = tk.BooleanVar(value=True)
 var_mode_fp  = tk.BooleanVar(value=True)
 var_mode_3d  = tk.BooleanVar(value=True)
-for var, lbl_key, tip_key in [
-    (var_mode_sym, "rb_symbol",    "tip_rb_symbol"),
-    (var_mode_fp,  "rb_footprint", "tip_rb_footprint"),
-    (var_mode_3d,  "rb_3d",        "tip_rb_3d"),
-]:
-    cb = ttk.Checkbutton(frame_mode, text=_t(lbl_key), variable=var)
-    cb.pack(side=tk.LEFT, padx=4)
-    _reg(cb, lbl_key)
-    _tip(cb, tip_key)
+for _var, _lbl, _tip_k in [(var_mode_sym, "rb_symbol", "tip_rb_symbol"),
+                             (var_mode_fp,  "rb_footprint", "tip_rb_footprint"),
+                             (var_mode_3d,  "rb_3d", "tip_rb_3d")]:
+    _cb = ttk.Checkbutton(frame_import_types, text=_t(_lbl), variable=_var)
+    _cb.pack(side=tk.LEFT, padx=(0, 14))
+    _reg(_cb, _lbl); _tip(_cb, _tip_k)
 
-# ── Row 6: Checkboxes ────────────────────────────────────────────────────────
-frame_opts = ttk.Frame(frame_top)
-frame_opts.grid(row=6, column=0, columnspan=3, sticky="w", padx=8, pady=(2, 0))
+ttk.Separator(grp_import, orient=tk.HORIZONTAL).grid(row=1, column=0, sticky="ew", pady=(0, 6))
+
+frame_opts_grid = ttk.Frame(grp_import)
+frame_opts_grid.grid(row=2, column=0, sticky="w", pady=(0, 6))
 var_overwrite = tk.BooleanVar()
 var_cache     = tk.BooleanVar()
 var_projrel   = tk.BooleanVar()
 var_debug     = tk.BooleanVar()
 var_verbose   = tk.BooleanVar()
-
-for lbl_key, var, tip_key, cmd in [
+for _i, (_lbl, _var, _tip_k, _cmd) in enumerate([
     ("cb_overwrite", var_overwrite, "tip_cb_overwrite", None),
     ("cb_cache",     var_cache,     "tip_cb_cache",     None),
     ("cb_projrel",   var_projrel,   "tip_cb_projrel",   _on_projrel_change),
     ("cb_debug",     var_debug,     "tip_cb_debug",     None),
-]:
-    cb = ttk.Checkbutton(frame_opts, text=_t(lbl_key), variable=var,
-                         **({"command": cmd} if cmd else {}))
-    cb.pack(side=tk.LEFT, padx=4)
-    _reg(cb, lbl_key)
-    _tip(cb, tip_key)
+    ("cb_verbose",   var_verbose,   "tip_cb_verbose",   None),
+    ("cb_tooltips",  var_tooltips,  None,               None),
+]):
+    _cb = ttk.Checkbutton(frame_opts_grid, text=_t(_lbl), variable=_var,
+                           **({"command": _cmd} if _cmd else {}))
+    _cb.grid(row=_i // 2, column=_i % 2, sticky="w", padx=(0 if _i%2==0 else 8, 0), pady=2)
+    _reg(_cb, _lbl)
+    if _tip_k: _tip(_cb, _tip_k)
 
-ttk.Separator(frame_opts, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
-cb_v = ttk.Checkbutton(frame_opts, text=_t("cb_verbose"), variable=var_verbose)
-cb_v.pack(side=tk.LEFT, padx=4)
-_reg(cb_v, "cb_verbose")
-_tip(cb_v, "tip_cb_verbose")
-ttk.Separator(frame_opts, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
-cb_tt = ttk.Checkbutton(frame_opts, text=_t("cb_tooltips"), variable=var_tooltips)
-cb_tt.pack(side=tk.LEFT, padx=4)
-_reg(cb_tt, "cb_tooltips")
+ttk.Separator(grp_import, orient=tk.HORIZONTAL).grid(row=3, column=0, sticky="ew", pady=(0, 6))
 
-# ── Row 7: 3D variable (Combobox with KiCad path var suggestions) ─────────────
-_reg(ttk.Label(frame_top, text=_t("lbl_3dvar")), "lbl_3dvar").grid(
-    row=7, column=0, sticky="w", **pad)
-entry_3dvar = ttk.Combobox(frame_top, width=36)
-entry_3dvar.grid(row=7, column=1, sticky="w", **pad)
+frame_3drow = ttk.Frame(grp_import)
+frame_3drow.grid(row=4, column=0, sticky="ew", pady=(0, 4))
+frame_3drow.columnconfigure(1, weight=1)
+_reg(ttk.Label(frame_3drow, text=_t("lbl_3dvar"), width=_LW, anchor="e"),
+     "lbl_3dvar").grid(row=0, column=0, sticky="e", padx=(0, 5))
+entry_3dvar = ttk.Combobox(frame_3drow, font=("Consolas", 9))
+entry_3dvar.grid(row=0, column=1, sticky="ew")
 entry_3dvar.set(DEFAULT_3D_VAR)
 _tip(entry_3dvar, "tip_3dvar")
-btn_kicad_vars = ttk.Button(frame_top, text=_t("btn_kicad_vars"), command=_reload_kicad_vars)
-btn_kicad_vars.grid(row=7, column=2, **pad)
-_reg(btn_kicad_vars, "btn_kicad_vars")
+btn_kicad_vars = _reg(ttk.Button(frame_3drow, text=_t("btn_kicad_vars"), command=_reload_kicad_vars),
+                       "btn_kicad_vars")
+btn_kicad_vars.grid(row=0, column=2, padx=(4, 0))
 _tip(btn_kicad_vars, "tip_kicad_vars")
 
-# ── Row 8: Custom fields ─────────────────────────────────────────────────────
-_reg(ttk.Label(frame_top, text=_t("lbl_custom")), "lbl_custom").grid(
-    row=8, column=0, sticky="w", **pad)
-entry_custom = ttk.Entry(frame_top, width=44)
-entry_custom.grid(row=8, column=1, columnspan=2, sticky="ew", **pad)
+frame_customrow = ttk.Frame(grp_import)
+frame_customrow.grid(row=5, column=0, sticky="ew")
+frame_customrow.columnconfigure(1, weight=1)
+_reg(ttk.Label(frame_customrow, text=_t("lbl_custom"), width=_LW, anchor="e"),
+     "lbl_custom").grid(row=0, column=0, sticky="e", padx=(0, 5))
+entry_custom = ttk.Entry(frame_customrow, font=("Consolas", 9))
+entry_custom.grid(row=0, column=1, sticky="ew")
 _tip(entry_custom, "tip_custom")
-lbl_custom_hint = ttk.Label(frame_top, text=_t("lbl_custom_hint"), foreground="gray")
-lbl_custom_hint.grid(row=9, column=1, columnspan=2, sticky="w", padx=8)
-_reg(lbl_custom_hint, "lbl_custom_hint")
 
-# ── Row 10: Buttons ──────────────────────────────────────────────────────────
-frame_btn = ttk.Frame(frame_top)
-frame_btn.grid(row=10, column=0, columnspan=3, pady=(8, 0))
-btn_run = ttk.Button(frame_btn, text=_t("btn_run"), command=run_import)
-btn_run.pack(side=tk.LEFT, padx=4)
-_reg(btn_run, "btn_run")
-btn_dry_run = ttk.Button(frame_btn, text=_t("btn_dryrun"), command=dry_run)
-btn_dry_run.pack(side=tk.LEFT, padx=4)
-_reg(btn_dry_run, "btn_dryrun")
+# ─ Action buttons ─────────────────────────────────────────────────────────────
+frame_btn = ttk.Frame(frame_left)
+frame_btn.grid(row=2, column=0, sticky="sew")
+frame_btn.columnconfigure(0, weight=1)
+
+btn_run = _reg(ttk.Button(frame_btn, text=_t("btn_run"), style="Green.TButton", command=run_import), "btn_run")
+btn_run.grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 4))
+
+frame_btn_sec = ttk.Frame(frame_btn)
+frame_btn_sec.grid(row=1, column=0, sticky="w")
+btn_dry_run = _reg(ttk.Button(frame_btn_sec, text=_t("btn_dryrun"), command=dry_run), "btn_dryrun")
+btn_dry_run.pack(side=tk.LEFT, padx=(0, 4))
 _tip(btn_dry_run, "tip_dryrun")
-btn_preview = ttk.Button(frame_btn, text=_t("btn_preview"), command=_show_preview,
-                          state=tk.DISABLED)
-btn_preview.pack(side=tk.LEFT, padx=4)
-_reg(btn_preview, "btn_preview")
+btn_preview = _reg(ttk.Button(frame_btn_sec, text=_t("btn_preview"), command=_show_preview, state=tk.DISABLED), "btn_preview")
+btn_preview.pack(side=tk.LEFT, padx=(0, 4))
 _tip(btn_preview, "tip_preview")
-btn_clear_log = ttk.Button(frame_btn, text=_t("btn_clear"), command=clear_log)
-btn_clear_log.pack(side=tk.LEFT, padx=4)
-_reg(btn_clear_log, "btn_clear")
+btn_clear_log = _reg(ttk.Button(frame_btn_sec, text=_t("btn_clear"), command=clear_log), "btn_clear")
+btn_clear_log.pack(side=tk.LEFT)
 
-# ── Inline preview strip ─────────────────────────────────────────────────────
-frame_preview_strip = ttk.Frame(root, padding=(10, 0, 10, 4))
+# ════════════════════════════════════════════════════════════ RIGHT COLUMN ════
+frame_right = ttk.Frame(frame_main)
+frame_right.grid(row=0, column=1, sticky="nsew")
+frame_right.columnconfigure(0, weight=1)
+frame_right.rowconfigure(1, weight=1)
+
+# ─ Component data card ────────────────────────────────────────────────────────
+grp_comp = _reg(ttk.LabelFrame(frame_right, text=_t("frm_comp_data"), padding=(9, 6)), "frm_comp_data")
+grp_comp.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+grp_comp.columnconfigure(1, weight=1)
+
+canvas_photo = tk.Canvas(grp_comp, width=52, height=62, bg="#f0f2f5",
+                          highlightthickness=1, highlightbackground="#d3d8de")
+canvas_photo.grid(row=0, column=0, rowspan=4, sticky="nw", padx=(0, 10))
+canvas_photo.create_text(26, 31, text="IMG", fill="#9aa3ad", font=("Segoe UI", 9))
+
+frame_mpn_row = ttk.Frame(grp_comp)
+frame_mpn_row.grid(row=0, column=1, sticky="ew")
+frame_mpn_row.columnconfigure(0, weight=1)
+lbl_mpn_large = ttk.Label(frame_mpn_row, text="—", font=("Segoe UI", 15, "bold"), foreground=_TEXT)
+lbl_mpn_large.grid(row=0, column=0, sticky="w")
+lbl_matched = ttk.Label(frame_mpn_row, text="", font=("Segoe UI", 9), foreground=_MUTED)
+lbl_matched.grid(row=0, column=1, sticky="e", padx=(8, 0))
+
+# Link chips — right-aligned below the matched indicator
+frame_link_chips = ttk.Frame(frame_mpn_row)
+frame_link_chips.grid(row=1, column=1, sticky="e", pady=(3, 0))
+
+def _link_chip(parent, text, reg_key=None):
+    lbl = tk.Label(parent, text=text, bg=_CHIP_NEUTRAL_BG, fg=_CHIP_NEUTRAL_FG,
+                   font=("Segoe UI", 9, "bold"), padx=6, pady=2, bd=0, cursor="")
+    lbl.pack(side=tk.LEFT, padx=(0, 4))
+    if reg_key:
+        _reg(lbl, reg_key)
+    return lbl
+
+btn_datasheet = _link_chip(frame_link_chips, _t("lbl_datasheet"), "lbl_datasheet")
+btn_lcsc      = _reg(_link_chip(frame_link_chips, "LCSC ↗"), "btn_lcsc")
+
+lbl_mfr_sub = ttk.Label(grp_comp, text="", font=("Segoe UI", 9), foreground=_MUTED)
+lbl_mfr_sub.grid(row=1, column=1, sticky="w")
+
+lbl_desc_sub = ttk.Label(grp_comp, textvariable=_var_desc, font=("Segoe UI", 9),
+                           foreground=_MUTED, wraplength=400, justify=tk.LEFT)
+lbl_desc_sub.grid(row=2, column=1, sticky="w", pady=(2, 4))
+
+frame_chips = ttk.Frame(grp_comp)
+frame_chips.grid(row=3, column=1, sticky="w")
+
+def _chip(parent: ttk.Frame, bg: str = _CHIP_NEUTRAL_BG, fg: str = _CHIP_NEUTRAL_FG) -> tk.Label:
+    lbl = tk.Label(parent, text="", bg=bg, fg=fg, font=("Segoe UI", 9, "bold"),
+                   padx=7, pady=2, bd=0, relief=tk.FLAT)
+    lbl.pack(side=tk.LEFT, padx=(0, 6))
+    return lbl
+
+lbl_chip_type  = _chip(frame_chips)
+lbl_chip_price = _chip(frame_chips)
+lbl_chip_stock = _chip(frame_chips, _CHIP_STOCK_BG, _CHIP_STOCK_FG)
+lbl_chip_pkg   = _chip(frame_chips)
+lbl_chip_rohs  = _chip(frame_chips, _CHIP_ROHS_BG,  _CHIP_ROHS_FG)
+
+# ─ Specs table ────────────────────────────────────────────────────────────────
+grp_specs = _reg(ttk.LabelFrame(frame_right, text=_t("frm_specs"), padding=(6, 4)), "frm_specs")
+grp_specs.grid(row=1, column=0, sticky="nsew", pady=(0, 8))
+grp_specs.columnconfigure(0, weight=1)
+grp_specs.rowconfigure(0, weight=1)
+
+frame_tree = ttk.Frame(grp_specs)
+frame_tree.grid(row=0, column=0, sticky="nsew")
+frame_tree.columnconfigure(0, weight=1)
+frame_tree.rowconfigure(0, weight=1)
+
+tree_specs = ttk.Treeview(frame_tree, style="Specs.Treeview",
+                            columns=("param", "value"), show="headings", selectmode="browse")
+tree_specs.heading("param", text=_t("col_param"))
+tree_specs.heading("value", text=_t("col_value"))
+tree_specs.column("param", width=160, minwidth=90, stretch=False)
+tree_specs.column("value", width=220, minwidth=90, stretch=True)
+tree_specs.grid(row=0, column=0, sticky="nsew")
+ttk.Scrollbar(frame_tree, orient=tk.VERTICAL,
+              command=tree_specs.yview).grid(row=0, column=1, sticky="ns")
+tree_specs.configure(yscrollcommand=ttk.Scrollbar(frame_tree).set)
+
+# ─ Previews ──────────────────────────────────────────────────────────────────
+frame_preview_strip = ttk.Frame(frame_right)
 frame_preview_strip.grid(row=2, column=0, sticky="ew")
 frame_preview_strip.columnconfigure(0, weight=1)
 frame_preview_strip.columnconfigure(1, weight=1)
@@ -2161,43 +2660,63 @@ frame_preview_strip.columnconfigure(1, weight=1)
 _sym_panel = ttk.LabelFrame(frame_preview_strip, text="Symbol", padding=4)
 _sym_panel.grid(row=0, column=0, padx=(0, 4), sticky="nsew")
 canvas_sym_thumb = tk.Canvas(_sym_panel, width=THUMB_W, height=THUMB_H,
-                              bg="white", highlightthickness=0, cursor="hand2")
+                              bg=_CANVAS_SYM_BG, highlightthickness=0, cursor="hand2")
 canvas_sym_thumb.pack()
 canvas_sym_thumb.bind("<Button-1>", lambda *_: _open_large_preview("sym"))
 
 _fp_panel = ttk.LabelFrame(frame_preview_strip, text="Footprint", padding=4)
 _fp_panel.grid(row=0, column=1, padx=(4, 0), sticky="nsew")
 canvas_fp_thumb = tk.Canvas(_fp_panel, width=THUMB_W, height=THUMB_H,
-                             bg="black", highlightthickness=0, cursor="hand2")
+                             bg=_CANVAS_FP_BG, highlightthickness=0, cursor="hand2")
 canvas_fp_thumb.pack()
 canvas_fp_thumb.bind("<Button-1>", lambda *_: _open_large_preview("fp"))
 
-# ── Log area ─────────────────────────────────────────────────────────────────
-frame_log = ttk.LabelFrame(root, text=_t("frm_log"), padding=6)
-frame_log.grid(row=3, column=0, sticky="nsew", padx=10, pady=(0, 10))
-_reg(frame_log, "frm_log")
+# ── Row 2: Output log ─────────────────────────────────────────────────────────
+frame_log_outer = ttk.Frame(root)
+frame_log_outer.grid(row=2, column=0, sticky="nsew", padx=_W, pady=(8, 0))
+frame_log_outer.columnconfigure(0, weight=1)
+frame_log_outer.rowconfigure(1, weight=1)
 
-text_log = scrolledtext.ScrolledText(frame_log, width=72, height=10, state=tk.DISABLED,
-                                     font=("Consolas", 9), wrap=tk.WORD)
-text_log.pack(fill=tk.BOTH, expand=True)
+frame_log_hdr = ttk.Frame(frame_log_outer)
+frame_log_hdr.grid(row=0, column=0, sticky="ew", pady=(0, 3))
+frame_log_hdr.columnconfigure(0, weight=1)
+_reg(ttk.Label(frame_log_hdr, text=_t("frm_log"), font=("Segoe UI", 10, "bold")), "frm_log").grid(row=0, column=0, sticky="w")
+ttk.Button(frame_log_hdr, text=_t("btn_clear"), command=clear_log).grid(row=0, column=1)
+
+frame_log = ttk.Frame(frame_log_outer)
+frame_log.grid(row=1, column=0, sticky="nsew")
+frame_log.columnconfigure(0, weight=1)
+frame_log.rowconfigure(0, weight=1)
+text_log = scrolledtext.ScrolledText(frame_log, width=80, height=7, state=tk.DISABLED,
+                                      font=("Consolas", 9), wrap=tk.WORD)
+text_log.grid(row=0, column=0, sticky="nsew")
 text_log.tag_config("error", foreground="#cc0000")
-text_log.tag_config("ok",    foreground="#007700")
-text_log.tag_config("info",  foreground="#0055aa")
+text_log.tag_config("ok",    foreground="#1f7a44")
+text_log.tag_config("info",  foreground=_ACCENT)
+
+# ── Row 3: Status bar ─────────────────────────────────────────────────────────
+frame_status = ttk.Frame(root)
+frame_status.grid(row=3, column=0, sticky="ew", padx=_W, pady=(4, _W))
+frame_status.columnconfigure(1, weight=1)
+lbl_status_dot = ttk.Label(frame_status, text="●", foreground=_CHIP_STOCK_FG, font=("Segoe UI", 10))
+lbl_status_dot.grid(row=0, column=0, padx=(0, 5))
+_var_status.set(_t("status_ready"))
+ttk.Label(frame_status, textvariable=_var_status, font=("Segoe UI", 9), foreground=_MUTED).grid(row=0, column=1, sticky="w")
+
+import importlib.metadata as _imeta
+try:    _e2k_ver = _imeta.version("easyeda2kicad")
+except Exception: _e2k_ver = "?"
+ttk.Label(frame_status, text=f"easyeda2kicad {_e2k_ver}",
+          font=("Consolas", 9), foreground=_MUTED).grid(row=0, column=2, sticky="e")
 
 # ── Apply persisted config ────────────────────────────────────────────────────
 _cfg = _load_config()
-if _cfg.get("newlib_sym_dir"):
-    entry_newlib_sym.insert(0, _cfg["newlib_sym_dir"])
-if _cfg.get("newlib_fp_dir"):
-    entry_newlib_fp.insert(0, _cfg["newlib_fp_dir"])
-if _cfg.get("newlib_3d_dir"):
-    entry_newlib_3d.insert(0, _cfg["newlib_3d_dir"])
-if _cfg.get("merge_sym_lib"):
-    entry_merge_sym.insert(0, _cfg["merge_sym_lib"])
-if _cfg.get("merge_fp_lib"):
-    entry_merge_fp.insert(0, _cfg["merge_fp_lib"])
-if _cfg.get("merge_3d_dir"):
-    entry_merge_3d.insert(0, _cfg["merge_3d_dir"])
+if _cfg.get("newlib_sym_dir"):  entry_newlib_sym.insert(0, _cfg["newlib_sym_dir"])
+if _cfg.get("newlib_fp_dir"):   entry_newlib_fp.insert(0,  _cfg["newlib_fp_dir"])
+if _cfg.get("newlib_3d_dir"):   entry_newlib_3d.insert(0,  _cfg["newlib_3d_dir"])
+if _cfg.get("merge_sym_lib"):   entry_merge_sym.insert(0,  _cfg["merge_sym_lib"])
+if _cfg.get("merge_fp_lib"):    entry_merge_fp.insert(0,   _cfg["merge_fp_lib"])
+if _cfg.get("merge_3d_dir"):    entry_merge_3d.insert(0,   _cfg["merge_3d_dir"])
 if _cfg.get("merge_mode"):
     var_merge_mode.set(True)
     frame_newlib.pack_forget()
@@ -2216,6 +2735,10 @@ if _kicad_vars:
         log(f"  ${{{_k}}} = {_v}\n", "ok")
 
 root.protocol("WM_DELETE_WINDOW", lambda: (_save_config(), root.destroy()))
+
+# Lock window size after layout so content changes never resize the window
+root.update_idletasks()
+root.geometry(root.geometry())
 
 # Trigger initial MPN fetch for pre-filled ID
 root.after(500, lambda: _trigger_mpn_fetch(entry_lcsc.get().strip()))
