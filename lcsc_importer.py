@@ -1067,6 +1067,7 @@ _prev_3dvar = ""  # saved when switching into project-relative mode
 _inline_sym_svg: str = ""
 _inline_fp_svg: str = ""
 _photo_img_url: str = ""
+_photo_pil_image = None  # original PIL Image, kept for zoom popup
 
 
 def _on_projrel_change():
@@ -1240,6 +1241,8 @@ def _load_part_photo(url: str) -> None:
             with urllib.request.urlopen(url, timeout=10) as r:  # noqa: S310
                 data = r.read()
             img = Image.open(io.BytesIO(data)).convert("RGB")
+            global _photo_pil_image
+            _photo_pil_image = img.copy()
             img.thumbnail((52, 62))
             photo = ImageTk.PhotoImage(img)
             root.after(0, lambda p=photo: _apply_photo(p))      # type: ignore[name-defined]
@@ -1252,6 +1255,69 @@ def _apply_photo(photo) -> None:                                                
     canvas_photo.delete("all")                                                  # type: ignore[name-defined]
     canvas_photo.image = photo  # keep reference                                # type: ignore[name-defined]
     canvas_photo.create_image(26, 31, image=photo)                              # type: ignore[name-defined]
+    canvas_photo.config(cursor="hand2")
+    canvas_photo.bind("<Button-1>", lambda *_: _open_photo_popup())
+
+
+def _open_photo_popup() -> None:
+    if _photo_pil_image is None:
+        return
+    try:
+        from PIL import Image, ImageTk
+    except ImportError:
+        return
+
+    orig = _photo_pil_image
+    orig_w, orig_h = orig.size
+    try:
+        resample = Image.Resampling.LANCZOS  # Pillow ≥9.1
+    except AttributeError:
+        resample = Image.LANCZOS  # type: ignore[attr-defined]
+
+    MAX_W, MAX_H = 500, 600
+    init_scale = min(MAX_W / orig_w, MAX_H / orig_h)
+    state = {"scale": init_scale, "photo": None}
+
+    dlg = tk.Toplevel(root)
+    dlg.title("Photo")
+    dlg.resizable(False, False)
+
+    header = ttk.Frame(dlg)
+    header.pack(fill=tk.X, padx=4, pady=(4, 0))
+    ttk.Label(header, text="Scroll to zoom · click to close").pack(side=tk.LEFT)
+    ttk.Button(header, text="✕", width=3, command=dlg.destroy).pack(side=tk.RIGHT)
+
+    c = tk.Canvas(dlg, bg="#f0f2f5", highlightthickness=0, cursor="hand2")
+    c.pack(padx=4, pady=4)
+
+    def _redraw():
+        s = state["scale"]
+        nw = max(1, int(orig_w * s))
+        nh = max(1, int(orig_h * s))
+        img = orig.resize((nw, nh), resample)
+        photo = ImageTk.PhotoImage(img)
+        state["photo"] = photo  # keep reference
+        c.config(width=nw, height=nh)
+        c.delete("all")
+        c.create_image(nw // 2, nh // 2, image=photo)
+
+    def _on_scroll(event):
+        delta = 1 if (event.delta > 0 or event.num == 4) else -1
+        state["scale"] = max(0.1, min(10.0, state["scale"] * (1.15 ** delta)))
+        _redraw()
+
+    c.bind("<Button-1>",  lambda *_: dlg.destroy())
+    c.bind("<MouseWheel>", _on_scroll)
+    c.bind("<Button-4>",  _on_scroll)
+    c.bind("<Button-5>",  _on_scroll)
+    dlg.bind("<Escape>",  lambda *_: dlg.destroy())
+
+    _redraw()
+
+    dlg.update_idletasks()
+    x = root.winfo_x() + max(0, (root.winfo_width()  - dlg.winfo_reqwidth())  // 2)
+    y = root.winfo_y() + max(0, (root.winfo_height() - dlg.winfo_reqheight()) // 2)
+    dlg.geometry(f"+{x}+{y}")
 
 
 def _update_jlc_info(jlc: dict, lcsc_id: str = "") -> None:
@@ -1346,8 +1412,11 @@ def _clear_jlc_info() -> None:
     canvas_photo.delete("all")                                                  # type: ignore[name-defined]
     canvas_photo.create_text(26, 31, text="IMG", fill="#9aa3ad",                # type: ignore[name-defined]
                               font=("Segoe UI", 9))
-    global _photo_img_url
+    canvas_photo.config(cursor="")                                              # type: ignore[name-defined]
+    canvas_photo.unbind("<Button-1>")                                           # type: ignore[name-defined]
+    global _photo_img_url, _photo_pil_image
     _photo_img_url = ""
+    _photo_pil_image = None
     _var_fetch_hint.set("← API")
 
 
