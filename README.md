@@ -6,7 +6,7 @@ A small Python/tkinter GUI wrapper around [easyeda2kicad](https://github.com/uPe
 
 *Ein kleines Python/tkinter-GUI für [easyeda2kicad](https://github.com/uPesy/easyeda2kicad.py), das LCSC-Bauteile in KiCad-Bibliotheken importiert.*
 
-![GUI Screenshot](Gui_v2.png)
+![GUI Screenshot](Gui_v3.png)
 
 ## Usage
 
@@ -16,14 +16,16 @@ A small Python/tkinter GUI wrapper around [easyeda2kicad](https://github.com/uPe
 
 **From source** (Python 3.9+):
 ```
-pip install easyeda2kicad
+pip install easyeda2kicad Pillow sv-ttk
 python lcsc_importer.py
 ```
 
 ## Features
 
+- **Component data card** — as you type an LCSC ID, the card shows the MPN, manufacturer, type (Basic/Extended), price, stock, package, and RoHS status pulled from the JLCPCB API; links to the datasheet and LCSC product page open in the browser
+- **Parametric specs table** — full attribute list (voltage, current, topology, etc.) fetched from the JLCPCB API 
+- **Part photo** — product image shown as a thumbnail in the card; click to open a zoomable popup (scroll to zoom), also visible full-size in the preview window
 - **Live symbol & footprint preview** — thumbnails render automatically as you type; click to enlarge
-- **MPN + description auto-fetch** — component name and description are pulled from the EasyEDA API as you type the LCSC ID
 - **Batch import** — paste multiple IDs (comma / semicolon / space separated); a confirmation dialog shows all resolved names before importing
 - **Two output modes** (switchable via radio button):
   - **New library** — creates separate output folders for symbols (`MPN.kicad_sym`), footprints (`MPN.pretty/`) and 3D models (`MPN.3dshapes/`)
@@ -56,14 +58,16 @@ MIT — see [LICENSE](LICENSE).
 
 **Aus dem Quellcode** (Python 3.9+):
 ```
-pip install easyeda2kicad
+pip install easyeda2kicad Pillow sv-ttk
 python lcsc_importer.py
 ```
 
 ### Funktionen
 
+- **Bauteil-Datenkarte** — beim Eingeben einer LCSC-ID zeigt die Karte MPN, Hersteller, Typ (Basic/Extended), Preis, Lagerbestand, Package und RoHS-Status aus der JLCPCB-API; Links zu Datenblatt und LCSC-Produktseite öffnen im Browser
+- **Parametrische Spezifikationstabelle** — vollständige Attributliste (Spannung, Strom, Topologie etc.) aus der JLCPCB-API
+- **Bauteilfoto** — Produktbild als Thumbnail in der Karte; Klick öffnet ein zoombares Popup (Scrollen zum Zoomen), auch in voller Größe im Vorschaufenster
 - **Live Symbol- & Footprint-Vorschau** — Thumbnails werden automatisch beim Tippen gerendert; Klick zum Vergrößern
-- **MPN + Beschreibung automatisch abrufen** — Bauteilname und Beschreibung werden beim Eingeben der LCSC-ID von der EasyEDA-API geladen
 - **Batch-Import** — mehrere IDs einfügen (komma-, semikolon- oder leerzeichengetrennt); ein Bestätigungsdialog zeigt alle aufgelösten Namen vor dem Import
 - **Zwei Ausgabemodi** (per Radio-Button wählbar):
   - **Neue Bibliothek** — erstellt separate Ausgabeordner für Symbole (`MPN.kicad_sym`), Footprints (`MPN.pretty/`) und 3D-Modelle (`MPN.3dshapes/`)

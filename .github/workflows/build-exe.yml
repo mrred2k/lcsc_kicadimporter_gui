@@ -20,7 +20,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install easyeda2kicad pyinstaller
+        run: pip install easyeda2kicad pyinstaller Pillow sv-ttk
 
       - name: Build executable
         shell: bash
